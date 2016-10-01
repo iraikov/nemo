@@ -1,2 +1,2 @@
 
-(define nemo-version "9.1")
+(define nemo-version "9.2")
