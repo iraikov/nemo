@@ -1,0 +1,699 @@
+;; Reference: Theta-Frequency Bursting and Resonance in Cerebellar Granule Cells:Experimental
+;; Evidence and Modeling of a Slow K+-Dependent Mechanism
+;; Egidio D'Angelo,Thierry Nieus,Arianna Maffei,Simona Armano,Paola Rossi,Vanni Taglietti,
+;; Andrea Fontana and Giovanni Naldi
+
+(nemo-model Granule
+
+  (
+   (input v)
+
+   (defun sigm (x y) (1 / (exp (x / y) + 1)))
+
+   (defun linoid (x y) 
+    	 (if ((abs (x / y)) < 1e-6) 
+             then (y * (1 - ((x / y) / 2)))
+	     else (x / (exp (x / y) - 1))
+	      ))
+
+   (const fix_celsius = 30)
+
+   (component (type membrane-capacitance)
+	 (const C_m  = (1))
+	 (output C_m  ))
+
+   (component (type membrane-geometry) (name soma)
+         (const L = 11.8)
+         (const diam = 11.8)
+	 (output L diam ))
+
+
+   (component (type decaying-pool) (name ca)
+
+      (input
+       (cai from ion-pools)
+       (ica from ion-currents))
+
+      (const  F       = 96485.3)
+      (const  d       = .2)
+      (const  cao     = 2.)
+      (const  cai0    = 1e-4)
+      (const  beta    = 1.5)
+      
+      (d (ca) =  ((neg (ica) / (2 * F * d)) * 1e4 -
+		  (beta * ((if (ca < cai0) then cai0 else ca) - cai0)))
+	 (initial cai0))
+      
+      (output ca cao)
+      )
+
+   
+   (component (type ionic-current) (name CaHVA )
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+
+			 (const Q10 = (pow (3 ((fix_celsius - 20) / 10))))
+
+			 (const Aalpha_s  = 0.04944)
+			 (const Kalpha_s  =  15.87301587302)
+			 (const V0alpha_s = -29.06)
+	
+			 (const Abeta_s  = 0.08298)
+			 (const Kbeta_s  =  -25.641)
+			 (const V0beta_s = -18.66)
+
+			 (const Aalpha_u  = 0.0013)
+			 (const Kalpha_u  =  -18.183)
+			 (const V0alpha_u = -48)
+			 
+			 (const Abeta_u = 0.0013)
+			 (const Kbeta_u = 83.33)
+			 (const V0beta_u = -48)
+			 
+			 ;; rate functions
+
+			 (defun alpha_s (v)
+			   (Q10 * Aalpha_s * exp((v - V0alpha_s) / Kalpha_s)))
+
+			 (defun beta_s (v)
+			   (Q10 * Abeta_s * exp((v - V0beta_s) / Kbeta_s)))
+
+			 (defun alpha_u (v)
+			   (Q10 * Aalpha_u * exp((v - V0alpha_u) / Kalpha_u)))
+
+			 (defun beta_u (v)
+			   (Q10 * Abeta_u * exp((v - V0beta_u) / Kbeta_u)))
+
+
+			 (hh-ionic-gate 
+			  (CaHVA  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  ((alpha_s (v))/(alpha_s (v) + beta_s (v)) ))
+			   (initial-h  ((alpha_u (v))/(alpha_u (v) + beta_u (v)) ))
+			   (m-power    2)
+			   (h-power    1)
+			   (m-alpha    (alpha_s (v)))
+			   (m-beta     (beta_s (v)))
+			   (h-alpha    (alpha_u (v)))
+			   (h-beta     (beta_u (v)))
+			   ))
+
+			 
+			 )
+	      
+	      (component (type pore)
+			 (const  gbar  = 0.00046)
+			 (output gbar ))
+	      
+	      (component (type permeating-ion) (name ca)
+			 (const e = 129.33)
+			 (output e ))
+	      
+	      ) ;; end CaHVA current
+
+   (component (type voltage-clamp) (name CaHVA)
+	      
+	      (const vchold   = -71)
+	      (const vcbase   = -69)
+	      (const vcinc    = 10)
+	      (const vcsteps  = 8)
+	      (const vchdur   = 30)
+	      (const vcbdur   = 100)
+	      
+	      (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+	      )
+
+
+
+   (component (type ionic-current) (name KA )
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+
+			 (const Q10 = (pow (3 ((fix_celsius - 20) / 10))))
+
+			 (const Aalpha_a  = 4.88826)
+			 (const Kalpha_a  = -23.32708)
+			 (const V0alpha_a = -9.17203)
+			 (const Abeta_a   = 0.99285)
+			 (const Kbeta_a   = 19.47175)
+			 (const V0beta_a  = -18.27914)
+
+			 (const Aalpha_b  = 0.11042)
+			 (const Kalpha_b  = 12.8433)
+			 (const V0alpha_b = -111.33209)
+			 (const Abeta_b   = 0.10353)
+			 (const Kbeta_b   = -8.90123)
+			 (const V0beta_b  = -49.9537)
+
+			 (const V0_ainf = -46.7)
+			 (const  K_ainf = -19.8)
+
+			 (const V0_binf   = -78.8)
+			 (const K_binf    = 8.4)
+
+			 
+			 ;; rate functions
+
+			 (defun alpha_a (v)
+			   (Q10 * Aalpha_a * sigm((v - V0alpha_a) Kalpha_a)))
+
+			 (defun beta_a (v)
+			   (Q10 * (Abeta_a / exp((v - V0beta_a) / Kbeta_a))))
+
+			 (defun alpha_b (v)
+			   (Q10 * Aalpha_b * sigm((v - V0alpha_b) Kalpha_b)))
+
+			 (defun beta_b (v)
+			   (Q10 * Abeta_b * sigm((v - V0beta_b) Kbeta_b)))
+
+
+
+			 (a_inf = (1 / (1 + exp ((v - V0_ainf) / K_ainf)))) 
+			 (tau_a = (1 / (alpha_a (v) + beta_a (v)) ))
+			 (b_inf = (1 / (1 + exp ((v - V0_binf) / K_binf))))
+			 (tau_b = (1 / (alpha_b (v) + beta_b (v)) ))
+
+			 (hh-ionic-gate 
+			  (KA  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  (1 / (1 + exp ((v - V0_ainf) / K_ainf))) )
+			   (initial-h  (1 / (1 + exp ((v - V0_binf) / K_binf))) )
+			   (m-power    3)
+			   (h-power    1)
+			   (m-inf      a_inf)
+			   (m-tau      tau_a)
+			   (h-inf      b_inf)
+			   (h-tau      tau_b)
+			   ))
+
+			 )
+
+	      	      
+	      (component (type pore)
+			 (const  gbar  = 0.004)
+			 (output gbar ))
+
+	      
+	      (component (type permeating-ion) (name k)
+			 (const e = -84.69)
+			 (output e ))
+	      
+	      ) ;; end KA current
+	      
+
+	      (component (type voltage-clamp) (name KA)
+           
+			 (const vchold   = -71)
+			 (const vcbase   = -69)
+			 (const vcinc    = 10)
+			 (const vcsteps  = 8)
+			 (const vchdur   = 30)
+			 (const vcbdur   = 100)
+           
+			 (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+			 )
+   
+
+   (component (type ionic-current) (name KCa )
+
+
+      (input
+       (cai from ion-pools))
+
+	      
+      (component (type gate)
+		 
+		 ;; rate constants
+		 (const Q10 = (pow (3 ((fix_celsius - 30) / 10))))
+		 
+		 (const Aalpha_c = 2.5)
+		 (const Balpha_c = 1.5e-3)
+		 
+		 (const Kalpha_c =  -11.765)
+		 
+		 (const Abeta_c = 1.5)
+		 (const Bbeta_c = 0.15e-3)
+
+		 (const Kbeta_c = -11.765)
+		 
+		 ;; rate functions
+		 (defun alpha_c (v cai)
+		   (Q10 * Aalpha_c / (1 + (Balpha_c * exp(v / Kalpha_c) / cai)))) 
+		 
+		 (defun beta_c (v cai)
+		   (Q10 * Abeta_c / (1 + (cai / (Bbeta_c * exp (v / Kbeta_c))) )))
+
+
+		 (hh-ionic-gate 
+		  (KCa  ;; ion name: exported variables will be of the form {ion}_{id}
+		   (initial-m  ((alpha_c (v cai)) / (alpha_c (v cai) + beta_c (v cai)) ))
+		   (m-power    1)
+		   (h-power    0)
+		   (m-alpha    (alpha_c (v cai)))
+		   (m-beta     (beta_c (v cai)))
+		   ))
+		 
+		 )
+      
+      (component (type pore)
+		 (const  gbar  = 0.003)
+		 (output gbar ))
+      
+      
+      (component (type permeating-ion) (name k)
+		 (const e = -84.69)
+		 (output e ))
+      
+      (component (type modulating-ion) (name ca)
+		 )
+	      
+      ) ;; end KCa current
+
+   (component (type voltage-clamp) (name KCa)
+	      
+	      (const vchold   = -71)
+	      (const vcbase   = -69)
+	      (const vcinc    = 10)
+	      (const vcsteps  = 8)
+	      (const vchdur   = 30)
+	      (const vcbdur   = 100)
+	      
+	      (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+	      )
+
+
+
+   (component (type ionic-current) (name Kir )
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+			 (const Q10 = (pow (3 ((fix_celsius - 20) / 10))))
+
+			 (const Aalpha_d = 0.13289)
+			 (const Kalpha_d = -24.3902)
+
+			 (const V0alpha_d = -83.94)
+			 (const Abeta_d   = 0.16994)
+
+			 (const Kbeta_d = 35.714)
+			 (const V0beta_d = -83.94)
+   
+			 ;; rate functions
+			 (defun alpha_d (v)
+			   (Q10 * Aalpha_d * exp((v - V0alpha_d) / Kalpha_d)))
+			 
+			 (defun beta_d (v)
+			   (Q10 * Abeta_d * exp((v - V0beta_d) / Kbeta_d) ))
+
+			 (hh-ionic-gate 
+			  (Kir  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  ((alpha_d (v)) / (alpha_d (v) + beta_d (v)) ))
+			   (m-power    1)
+			   (h-power    0)
+			   (m-alpha    (alpha_d (v)))
+			   (m-beta     (beta_d (v)))
+			   ))
+			 
+			 )
+
+
+	      (component (type pore)
+			 (const  gbar  = 0.0009)
+			 (output gbar ))
+
+	      
+	      (component (type permeating-ion) (name k)
+			 (const e = -84.69)
+			 (output e ))
+	      
+	      ) ;; end Kir current
+
+	      	      
+
+   (component (type voltage-clamp) (name Kir)
+	      
+	      (const vchold   = -71)
+	      (const vcbase   = -69)
+	      (const vcinc    = 10)
+	      (const vcsteps  = 8)
+	      (const vchdur   = 30)
+	      (const vcbdur   = 100)
+	      
+	      (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+	      )
+
+
+   (component (type ionic-current) (name KM )
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+			 (const Aalpha_n = 0.0033)
+
+			 (const Kalpha_n  = 40)
+			 (const V0alpha_n = -30)
+			 (const Abeta_n   = 0.0033)
+
+			 (const Kbeta_n  = -20)
+			 (const V0beta_n = -30)
+			 (const V0_ninf  = -30)
+			 (const   B_ninf = 6)
+			 
+			 (const Q10 = (pow (3 ((fix_celsius - 22) / 10))))
+			 
+			 ;; rate equations
+			 (defun alpha_n (v)
+			   (Q10 * Aalpha_n * exp((v - V0alpha_n) / Kalpha_n) ))
+
+			 (defun beta_n (v)
+			   (Q10 * Abeta_n * exp((v - V0beta_n) / Kbeta_n) ))
+
+			 (hh-ionic-gate 
+			  (KM  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  (alpha_n (v)) / (alpha_n (v) + beta_n (v)) )
+			   (m-power    1)
+			   (h-power    0)
+			   (m-tau      (1 / (alpha_n(v) + beta_n (v)) ))
+			   (m-inf      (1 / (1 + exp((neg (v - V0_ninf)) / B_ninf))))
+			   ))
+			 )
+	      
+	      (component (type pore)
+			 (const  gbar  = 0.00035)
+			 (output gbar ))
+	      
+	      (component (type permeating-ion) (name k)
+			 (const e = -84.69)
+			 (output e ))
+	      
+	      ) ;; end KM current
+
+
+   (component (type voltage-clamp) (name KM)
+	      
+	      (const vchold   = -71)
+	      (const vcbase   = -69)
+	      (const vcinc    = 10)
+	      (const vcsteps  = 8)
+	      (const vchdur   = 30)
+	      (const vcbdur   = 100)
+	      
+	      (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+	      )
+
+   (component (type ionic-current) (name KV )
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+			 (const Q10 = (pow (3 ((fix_celsius - 6.3) / 10))))
+
+			 (const Aalpha_n = -0.01)
+			 (const Kalpha_n = -10)
+			 (const V0alpha_n = -25)
+			 (const Abeta_n = 0.125)
+	
+			 (const Kbeta_n = -80)
+			 (const V0beta_n = -35)
+
+			 ;; rate functions
+			 (defun alpha_n (v) 
+			   (Q10 * Aalpha_n * linoid ((v - V0alpha_n) Kalpha_n)))
+
+			 (defun beta_n (v) 
+			   (Q10 * Abeta_n * exp((v - V0beta_n) / Kbeta_n) ))
+
+			 (hh-ionic-gate 
+			  (KV  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  ((alpha_n (v)) / (alpha_n (v) + beta_n (v)) ))
+			   (m-power    4)
+			   (h-power    0)
+			   (m-alpha    (alpha_n(v)))
+			   (m-beta     (beta_n(v)))
+			   ))
+			 )
+
+	      (component (type pore)
+			 (const  gbar  = 0.003)
+			 (output gbar ))
+	      
+	      (component (type permeating-ion) (name k)
+			 (const e = -84.69)
+			 (output e ))
+	      
+	      ) ;; end KV current
+	      
+
+   (component (type voltage-clamp) (name KV)
+	      
+	      (const vchold   = -71)
+	      (const vcbase   = -69)
+	      (const vcinc    = 10)
+	      (const vcsteps  = 8)
+	      (const vchdur   = 30)
+	      (const vcbdur   = 100)
+	      
+	      (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+	      )
+	      
+   
+   (component (type ionic-current) (name Lkg1)
+	      
+	      (component (type pore)
+			 (const  gbar  = (5.68e-5))
+			 (output gbar))
+	      
+	      (component (type permeating-ion) (name non-specific)
+			 (const e = -16.5)
+			 (output e ))
+	      
+	      ) ;; end leak current
+
+
+   (component (type ionic-current) (name Lkg2)
+	      
+	      (component (type pore)
+			 (const  ggaba  = (3e-5))
+			 (output ggaba))
+	      
+	      (component (type permeating-ion) (name non-specific)
+			 (const egaba = -65)
+			 (output egaba ))
+	      
+	      ) ;; end leak current
+
+
+   (component (type ionic-current) (name Na )
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+			 (const Q10 = (pow (3 ((fix_celsius - 20) / 10))))
+
+			 (const Aalpha_m  = -0.3)
+			 (const Kalpha_m  = -10)
+			 (const V0alpha_m = -19)
+	
+			 (const Abeta_m = 12)
+			 (const Kbeta_m = -18.182)
+			 (const V0beta_m = -44)
+
+			 (const Aalpha_h = 0.105)
+			 (const Kalpha_h = -3.333)
+			 (const V0alpha_h = -44)
+ 
+			 (const Abeta_h = 1.5)
+			 (const Kbeta_h = -5)
+			 (const V0beta_h = -11)
+
+			 ;; rate functions
+			 (defun alpha_m (v)	
+			   (Q10 * Aalpha_m * linoid((v - V0alpha_m) Kalpha_m) ))
+
+			 (defun beta_m (v)
+			   (Q10 * Abeta_m * exp((v - V0beta_m) / Kbeta_m) ))
+
+			 (defun alpha_h (v)
+			   (Q10 * Aalpha_h * exp((v - V0alpha_h) / Kalpha_h) ))	
+				
+			 (defun beta_h (v)
+			   (Q10 * Abeta_h / (1 + exp((v - V0beta_h) / Kbeta_h) )))
+
+			 
+			 (hh-ionic-gate 
+			  (Na  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  ((alpha_m (v)) / (alpha_m (v) + beta_m (v)) ))
+			   (initial-h  ((alpha_h (v)) / (alpha_h (v) + beta_h (v)) ))
+			   (m-power    3)
+			   (h-power    1)
+			   (m-alpha    (alpha_m (v)))
+			   (m-beta     (beta_m (v)))
+			   (h-alpha    (alpha_h (v)))
+			   (h-beta     (beta_h (v)))
+			   ))
+			 
+			 )
+	      
+	      (component (type pore)
+			 (const  gbar  = 0.013)
+			 (output gbar ))
+
+	      
+	      (component (type permeating-ion) (name na)
+			 (const e = 87.39)
+			 (output e ))
+	      
+	      ) ;; end Na current
+
+
+   (component (type voltage-clamp) (name Na)
+
+	      (const vchold   = -71)
+	      (const vcbase   = -60)
+	      (const vcinc    = 10)
+	      (const vcsteps  = 9)
+	      (const vchdur   = 30)
+	      (const vcbdur   = 100)
+           
+	      (output vchold vcbase vcinc vcsteps vchdur vcbdur))
+
+
+   (component (type ionic-current) (name NaR )
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+			 (const Q10 = (pow (3 ((fix_celsius - 20) / 10))))
+
+			 (const Aalpha_s     = -0.00493)
+			 (const V0alpha_s    = -4.48754)
+			 (const Kalpha_s     = -6.81881)
+			 (const Shiftalpha_s = 0.00008)
+
+			 (const Abeta_s     = 0.01558)
+			 (const V0beta_s    = 43.97494)
+			 (const Kbeta_s     =  0.10818)
+			 (const Shiftbeta_s = 0.04752)
+
+			 (const Aalpha_f  = 0.31836)
+			 (const V0alpha_f = -80)
+			 (const Kalpha_f  = -62.52621)
+
+			 (const Abeta_f  = 0.01014)
+			 (const V0beta_f = -83.3332)
+			 (const Kbeta_f  = 16.05379)
+
+			 ;; rate functions
+			 (defun alpha_s (v) 
+			   (Q10 * (Shiftalpha_s + (Aalpha_s * ((v + V0alpha_s) / (exp ((v + V0alpha_s) / Kalpha_s) - 1))))))
+
+			 (defun beta_s (v) 
+			   (Q10 * (Shiftbeta_s + Abeta_s * ((v + V0beta_s) / (exp((v + V0beta_s) / Kbeta_s) - 1)))))
+
+			 (defun alpha_f (v) 
+			   (Q10 * Aalpha_f * exp( ( v - V0alpha_f ) / Kalpha_f)))
+
+			 (defun beta_f (v) 
+			   (Q10 * Abeta_f * exp( ( v - V0beta_f ) / Kbeta_f )  ))
+
+
+			 (hh-ionic-gate 
+			  (NaR  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  ((alpha_s (v)) / (alpha_s (v) + beta_s (v)) ))
+			   (initial-h  ((alpha_f (v)) / (alpha_f (v) + beta_f (v)) ))
+			   (m-power    1)
+			   (h-power    1)
+			   (m-alpha    (alpha_s (v)))
+			   (m-beta     (beta_s (v)))
+			   (h-alpha    (alpha_f (v)))
+			   (h-beta     (beta_f (v)))
+			   ))
+			 )
+
+	      (component (type pore)
+			 (const  gbar  = 0.0005)
+			 (output gbar ))
+
+	      (component (type permeating-ion) (name na)
+			 (const e = 87.39)
+			 (output e ))
+	      
+	      ) ;; end Nar current
+
+
+   (component (type voltage-clamp) (name NaR)
+
+	      (const vchold   = -71)
+	      (const vcbase   = -60)
+	      (const vcinc    = 10)
+	      (const vcsteps  = 9)
+	      (const vchdur   = 30)
+	      (const vcbdur   = 100)
+           
+	      (output vchold vcbase vcinc vcsteps vchdur vcbdur))
+
+
+   (component (type ionic-current) (name pNa )
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+			 (const Q10 = (pow (3 ((fix_celsius - 30) / 10))))
+
+			 (const Aalpha_m  = -0.091)
+			 (const Kalpha_m  = -5)
+			 (const V0alpha_m = -42)
+			 (const Abeta_m   = 0.062)
+			 (const Kbeta_m   = 5)
+			 (const V0beta_m  = -42)
+			 (const V0_minf   = -42)
+			 (const B_minf    = 5)
+
+			 ;; rate functions
+			 (defun alpha_m (v)
+			   (Q10 * Aalpha_m * linoid( (v - V0alpha_m) Kalpha_m)))
+
+			 (defun beta_m (v)
+			   (Q10 * Abeta_m * linoid ( (v - V0beta_m) Kbeta_m) ))
+			 
+
+			 (hh-ionic-gate 
+			  (pNa  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  (1 / (1 + exp ((neg (v - V0_minf)) / B_minf))))
+			   (m-power    1)
+			   (h-power    0)
+			   (m-inf      (1 / (1 + exp((neg (v - V0_minf)) / B_minf))))
+			   (m-tau      (5 / (alpha_m (v) + beta_m (v))))
+			   ))
+			 
+			 )
+
+
+	      (component (type pore)
+			 (const  gbar  = 2e-5)
+			 (output gbar ))
+
+	      
+	      (component (type permeating-ion) (name na)
+			 (const e = 87.39)
+			 (output e ))
+	      
+	      ) ;; end pNa current
+
+
+   (component (type voltage-clamp) (name pNa)
+
+	      (const vchold   = -71)
+	      (const vcbase   = -60)
+	      (const vcinc    = 10)
+	      (const vcsteps  = 9)
+	      (const vchdur   = 30)
+	      (const vcbdur   = 100)
+           
+	      (output vchold vcbase vcinc vcsteps vchdur vcbdur))
+
+
+))

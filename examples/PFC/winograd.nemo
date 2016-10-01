@@ -1,0 +1,272 @@
+
+(nemo-model Winograd08
+
+  (
+
+   (input v celsius)
+
+   (const vtraub  = -55)
+
+   (fun exp1 (x) (if (x < -100) then 0.0 else exp (x)))
+
+   (fun vtrap (x y)
+        (if (abs (x / y) < 1e-6) 
+            then (y * (1 - x / y / 2))
+            else (x / (exp1 (x / y) - 1))))
+
+   (fun vtrap_CaL (x c)
+        (if (abs (x / c) < 1e-6) 
+            then (c + (x / 2))
+            else (x / (1 - exp ( neg(x) / c)))))
+
+   (component (type defaults) 
+      (const V_t     = -35)
+      (const celsius = 36)
+      (output celsius V_t)
+      )
+
+   (component (type membrane-capacitance)
+  	 (const c = 1)
+	 (output c  ))
+
+
+   (component (type geometry) (name soma)
+         (const L = 18.8)
+         (const diam = 18.8)
+	 (output L diam ))
+
+
+
+   (component (type decaying-pool) (name ca)
+
+      (input (ica from ion-currents))
+
+   	      (const  F       = 96485.3)
+   	      (const  d       = 1.0)
+   	      (const  cao     = 2.)
+   	      (const  cai0    = 100e-6)
+   	      (const  taur    = 20.0)
+
+   	      (d (ca) =  ((neg (ica) / (2 * F * d)) * 1e4 - ((ca - cai0) / taur))
+   	      	      	 (initial cai0))
+	      
+   	      (output ca cao)
+   	      )
+
+;; High-threshold calcium (L-) current from hippocampal pyramidal cells
+;;
+;; Equations from
+;;   McCormick DA, Huguenard JR (1992) A model of the electrophysiological
+;;   properties of thalamocortical relay neurons. J Neurophys 68(4):
+;;   1384-1400.
+;;
+;;	See also
+;;   Kay AR, Wong RK (1987) Calcium current activation kinetics in isolated    
+;;   pyramidal neurones of the Ca1 region of the mature guinea-pig 
+;;   hippocampus. J Physiol 392: 603-616.
+;;
+;; >< Temperature adjusts time constants measured at 23.5 degC.
+   
+   (component (type ionic-current) (name CaL )
+	      
+      (input 
+       (cai from ion-pools)
+       (cao from ion-pools))
+	      
+      (component (type gate)
+		 
+                 (tadj = (pow (3 ((celsius - 23.5) / 10))))
+
+		 (a  = (1.6 / (1 + exp (-0.072 * (v - 5))) ))
+		 (b  = (0.02 * vtrap_CaL (neg (v - 1.31) ~ 5.36) ))
+		 
+                 (mtau = (1 / (a + b) / tadj))
+                 (minf = (1 / (1 + exp ((v + 10) / -10))))
+
+		 (hh-ionic-gate 
+
+		  (CaL  ;; ion name: exported variables will be of the form {ion}_{id}
+
+		   (initial-m  (minf))
+		   (m-power    2)
+		   (h-power    0)
+		   (m-inf      (minf))
+		   (m-tau      (mtau))
+		   ))
+		 
+		 )
+	         
+      (component (type permeability)
+
+                 (fun ghk (v ci co)
+                      (let ((F  9.6485e4)
+                            (R  8.3145)
+                            (T  (22 + 273.19))  
+                            (Z  2)
+                            (E  ((1e-3) * v)))
+                        (let ((k0 ((Z * (F * E)) / (R * T))))
+                          (let ((k1 (exp (neg (k0))))
+                                (k2 (((Z ^ 2) * (E * (F ^ 2))) / (R * T))))
+                            (1e-6) * (if (abs (1 - k1) < 1e-6) 
+                                         then (Z * F * (ci - (co * k1)) * (1 - k0))
+                                         else (k2 * (ci - (co * k1)) / (1 - k1)))))))
+			 
+                 (const pcabar  = 2.76e-4)
+                 (pca           = (pcabar * ghk (v cai cao)))
+                 
+                 (output pca pcabar))
+              
+      (component (type permeating-ion) (name ca))
+
+      ;; end CaL current
+      )
+
+;; Cortical M current
+;;
+;;   M-current, responsible for the adaptation of firing rate and the 
+;;   afterhyperpolarization (AHP) of cortical pyramidal cells
+;;
+;;   First-order model described by hodgkin-Hyxley like equations.
+;;   K+ current, activated by depolarization, noninactivating.
+;;
+;;   Model taken from Yamada, W.M., Koch, C. and Adams, P.R.  Multiple 
+;;   channels and calcium dynamics.  In: Methods in Neuronal Modeling, 
+;;   edited by C. Koch and I. Segev, MIT press, 1989, p 97-134.
+;;
+;;   See also: McCormick, D.A., Wang, Z. and Huguenard, J. Neurotransmitter 
+;;   control of neocortical neuronal activity and excitability. 
+;;  Cerebral Cortex 3: 387-398, 1993.
+;;
+;;  Written by Alain Destexhe, Laval University, 1995
+
+   (component (type ionic-current) (name KM)
+
+              (component (type gate)
+
+                         (fun exptable (x) (if ((x > -25) && (x < 25)) then exp (x) else 0.0))
+                         
+                         (const tadj = (pow (2.3 ((celsius - 36) / 10 ))))
+                         
+                         ;; rate functions
+                         
+                         (const taumax = 1000.0)
+                         (tau_peak = (taumax / tadj))
+                         
+                         (n_inf = (1 / ( 1 + exptable (neg (v + 35) / 10)) ))
+                         (tau_n = (tau_peak / ( 3.3 * exptable((v + 35) / 20) + exptable(neg (v + 35) / 20)) ))
+                         
+                         (hh-ionic-gate 
+                          (KM  ;; ion name: exported variables will be of the form {ion}_{id}
+                           (initial-m (n_inf))
+                           
+                           (m-power   1)
+                           (h-power   0)
+                           (m-tau     (tau_n))
+                           (m-inf     (n_inf))
+                           ))
+                         )
+
+              (component (type permeating-ion) (name k)
+                         (const e_KM = -95)
+                         (output e_KM))
+
+              (component (type pore)
+                         (const  gbar_KM  = 1e-6)
+                         (output gbar_KM))
+              )
+
+              
+
+   (component (type ionic-current) (name Na)
+
+              (component (type gate)
+
+                       	(const tadj = (pow (3.0 ((celsius-36) / 10 ))))
+
+                         ;; rate functions
+                         
+                        (v2 = (v - vtraub)) ;; convert to traub convention
+
+                        (a_m = (0.32 * vtrap (13 - v2 ~ 4)))
+                        (b_m = (0.28 * vtrap (v2 - 40 ~ 5)))
+                        (tau_m = (1 / (a_m + b_m) / tadj))
+                        (m_inf = (a_m / (a_m + b_m)))
+
+                        (a_h   = (0.128 * exp1 ((17 - v2) / 18)))
+                        (b_h   = (4 / ( 1 + exp1 ((40 - v2) / 5) )))
+                        (tau_h = (1 / (a_h + b_h) / tadj))
+                        (h_inf = (a_h / (a_h + b_h)))
+
+                        (hh-ionic-gate 
+                         (Na  ;; ion name: exported variables will be of the form {ion}_{id}
+                          (initial-m (m_inf))
+                          (initial-h (h_inf))
+
+                          (m-power   3)
+                          (h-power   1)
+                          (m-tau     (tau_m))
+                          (h-tau     (tau_h))
+                          (m-inf     (m_inf))
+                          (h-inf     (h_inf))
+                        ))
+                        )
+
+              (component (type permeating-ion) (name na)
+                         (const e_Na = 50)
+                         (output e_Na))
+
+              (component (type pore)
+                         (const  gbar_Na  = 0.1)
+                         (output gbar_Na))
+              )
+
+
+   (component (type ionic-current) (name K)
+
+              (component (type gate)
+
+                       	(const tadj = (pow (3.0 ((celsius-36) / 10 ))))
+
+                         ;; rate functions
+                         
+                        (v2 = (v - vtraub)) ;; convert to traub convention
+
+                        (a_n   = (0.032 * vtrap (15 - v2 ~ 5)))
+                        (b_n   = (0.5 * exp1 ((10 - v2) / 40)))
+                        (tau_n = (1 / (a_n + b_n) / tadj))
+                        (n_inf = (a_n / (a_n + b_n)))
+
+                        (hh-ionic-gate 
+                         (K  ;; ion name: exported variables will be of the form {ion}_{id}
+                          (initial-m (n_inf))
+
+                          (m-power   4)
+                          (h-power   0)
+                          (m-tau     (tau_n))
+                          (m-inf     (n_inf))
+                        ))
+                        )
+
+              (component (type permeating-ion) (name k)
+                         (const e_K = -95)
+                         (output e_K))
+
+              (component (type pore)
+                         (const  gbar_K  = 0.01)
+                         (output gbar_K))
+              )
+
+      
+   (component (type ionic-current) (name Lkg)
+	      
+	      (component (type pore)
+			 (const  gbar  = (0.001))
+			 (output gbar))
+	      
+	      (component (type permeating-ion) (name non-specific)
+			 (const e = -70)
+			 (output e ))
+	      
+	      ) ;; end leak current
+   )
+)

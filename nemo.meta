@@ -1,0 +1,32 @@
+; -*- Hen -*-
+
+((egg "nemo.egg") ; This should never change
+
+ ; List here all the files that should be bundled as part of your egg.  
+
+ (files "nemo.meta" "extensions" "expr.grm" "nemo.setup" 
+	"nemo-core.scm" "nemo-gate-complex.scm" "nemo-currents.scm" "nemo-synapse.scm" "nemo-constraints.scm" "nemo-utils.scm" "nemo-units.scm" "nemo-fetch.scm"
+        "nemo-macros.scm" "nemo.scm" 
+	"stx-engine.scm" "SXML.scm" "SXML-to-XML.scm" "expr-parser.scm" 
+	"nemo-nmodl.scm" "nemo-matlab.scm" "nemo-nest.scm" "nemo-pyparams.scm" "examples" )
+
+ ; Your egg's license:
+
+ (license "GPL-3")
+
+ ; Pick one from the list of categories (see below) for your egg and
+ ; enter it here.
+
+ (category parsing)
+
+ ; A list of eggs nemo depends on.
+
+ (needs make matchable (iexpr 1.8) sxml-transforms ssax sxpath
+	datatype vector-lib digraph graph-bfs graph-cycles 
+	unitconv mathh strictly-pretty (varsubst 1.3) (lalr 2.4.2)
+	ersatz uri-generic getopt-long)
+
+ (author "Ivan Raikov")
+
+ (synopsis "A description language for computational models of neuronal ionic currents."))
+

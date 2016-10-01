@@ -1,0 +1,24 @@
+{#
+   NMODL function template 
+
+   Template variables are:
+
+   - indent: current indentation level
+   - functionName: string with the name of the function
+   - functionVars: list of strings with the name of the arguments
+   - exprString: string with expression body converted to NMODL syntax
+   
+#}
+
+{% macro nmodl_function(name,vars,localVars,exprString) %}
+
+FUNCTION {{name}} ({{vars | join (", ")}}) {
+{% if (not (localVars == [])) %}
+LOCAL {{localVars | join (", ")}}
+{% endif %}
+
+  {{exprString}}
+
+} 
+
+{% endmacro %}

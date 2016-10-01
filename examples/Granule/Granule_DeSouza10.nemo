@@ -1,0 +1,2341 @@
+
+;; Reference: Cerebellar cortex oscillatory robustness from Golgi cell gap jncs (Simoes de Souza and De Schutter 2011)
+
+(nemo-model Granule
+
+  (
+   (input (v (unit mV))
+          (celsius (unit degC)))
+
+   (component (type defaults) 
+      (const V_t = -35 (unit mV))
+      (const Ra = 0.01 (unit ohm.cm))
+      (const celsius = 30 (unit degC))
+      (output celsius V_t)
+      )
+
+   (component (type membrane-capacitance)
+	 (const C_m  = 1 (unit uf/cm2))
+	 (output C_m  ))
+
+
+   (component (type geometry) (name soma)
+         (const L = 11.8 (unit um))
+         (const diam = 11.8 (unit um))
+	 (output L diam ))
+
+
+   (component (type post-synaptic-conductance) (name AMPA)
+
+        (input (w from event (unit uS)))
+
+        (const tauA = 0.03 (unit ms)) ;; rise time
+	(const tauB = 0.5 (unit ms)) ;; decay time
+
+        (const  e = 0 )
+
+        (const tau1 = (if ((tauA / tauB) > .9999) then (0.9999 * tauB) else tauA))
+        (const tau2 = tauB)
+
+	(const tp = ((tau1 * tau2) / (tau2 - tau1) * ln (tau2 / tau1)))
+	(const scale_factor  = (1 / (neg (exp(neg (tp) / tau1)) + exp (neg (tp) / tau2))))
+
+	(transient (A) = (neg (A) / tau1) (onevent (A + (w * scale_factor))) (initial 0))
+	(transient (B) = (neg (B) / tau2) (onevent (B + (w * scale_factor))) (initial 0))
+
+        (g =  (B - A))
+
+        (output g e scale_factor)
+
+      )
+
+
+   (component (type post-synaptic-conductance) (name GABA)
+
+        (input (w from event))
+
+        (const tauA = 0.31) ;; rise time
+	(const tauB = 8.8) ;; decay time
+
+        (const  e = -75)
+
+        (const tau1 = (if ((tauA / tauB) > .9999) then (0.9999 * tauB) else tauA))
+        (const tau2 = tauB)
+
+	(const tp = ((tau1 * tau2) / (tau2 - tau1) * ln (tau2 / tau1)))
+	(const scale_factor  = (1 / (neg (exp(neg (tp) / tau1)) + exp (neg (tp) / tau2))))
+
+	(transient (A) = (neg (A) / tau1) (onevent (A + (w * scale_factor))) (initial 0))
+	(transient (B) = (neg (B) / tau2) (onevent (B + (w * scale_factor))) (initial 0))
+
+        (g =  (B - A))
+
+        (output g e scale_factor)
+
+      )
+
+
+   (component (type post-synaptic-conductance) (name NMDA)
+
+        (input (w from event))
+
+        (const tauA = 1) ;; rise time
+	(const tauB = 13.3) ;; decay time
+
+        (const  e = 0)
+
+        (const tau1 = (if ((tauA / tauB) > .9999) then (0.9999 * tauB) else tauA))
+        (const tau2 = tauB)
+
+	(const tp = ((tau1 * tau2) / (tau2 - tau1) * ln (tau2 / tau1)))
+	(const scale_factor  = (1 / (neg (exp(neg (tp) / tau1)) + exp (neg (tp) / tau2))))
+
+	(transient (A) = (neg (A) / tau1) (onevent (A + (w * scale_factor))) (initial 0))
+	(transient (B) = (neg (B) / tau2) (onevent (B + (w * scale_factor))) (initial 0))
+
+        (g =  (B - A))
+
+        (output g e scale_factor)
+
+      )
+
+   (component (type decaying-pool) (name ca)
+
+      (input
+       (cai from ion-pools)
+       (ica from ion-currents))
+
+      (const  F       = 96485.3)
+      (const  d       = .2)
+      (const  cao     = 2.)
+      (const  cai0    = 1e-4)
+      (const  beta    = 1.5)
+      
+      (d (ca) =  ((neg (ica) / (2 * F * d)) * 1e4 -
+		  (beta * ((if (ca < cai0) then cai0 else ca) - cai0)))
+	 (initial cai0))
+      
+      (output ca cao)
+      )
+
+   
+   (component (type ionic-current) (name CaHVA )
+	      
+      (input 
+       (cai from ion-pools)
+       (cao from ion-pools))
+	      
+      (component (type gate)
+
+		 ;; rate constants
+		 
+		 (Q10 = (pow (3 ((celsius - 20) / 10))))
+		 
+		 (const Aalpha_s  = 0.04944)
+		 (const Kalpha_s  =  15.87301587302)
+		 (const V0alpha_s = -29.06)
+		 
+		 (const Abeta_s  = 0.08298)
+		 (const Kbeta_s  =  -25.641)
+		 (const V0beta_s = -18.66)
+		 
+		 (const Aalpha_u  = 0.0013)
+		 (const Kalpha_u  =  -18.183)
+		 (const V0alpha_u = -48)
+			 
+		 (const Abeta_u = 0.0013)
+		 (const Kbeta_u = 83.33)
+		 (const V0beta_u = -48)
+		 
+		 ;; rate functions
+		 
+		 (defun alpha_s (v Q10)
+		   (Q10 * Aalpha_s * exp((v - V0alpha_s) / Kalpha_s)))
+		 
+		 (defun beta_s (v Q10)
+		   (Q10 * Abeta_s * exp((v - V0beta_s) / Kbeta_s)))
+		 
+		 (defun alpha_u (v Q10)
+		   (Q10 * Aalpha_u * exp((v - V0alpha_u) / Kalpha_u)))
+		 
+		 (defun beta_u (v Q10) 
+		   (Q10 * Abeta_u * exp((v - V0beta_u) / Kbeta_u)))
+
+		 (s_inf = ((alpha_s (v Q10))/(alpha_s (v Q10) + beta_s (v Q10))))
+		 (tau_s = (1 / (alpha_s (v Q10) + beta_s (v Q10)) ))
+
+		 (u_inf = ((alpha_u (v Q10))/(alpha_u (v Q10) + beta_u (v Q10)) ))
+		 (tau_u = (1 / (alpha_u (v Q10) + beta_u (v Q10)) ))
+
+		 (hh-ionic-gate 
+		  (CaHVA  ;; ion name: exported variables will be of the form {ion}_{id}
+		   (initial-m  s_inf)
+		   (initial-h  u_inf)
+		   (m-power    2)
+		   (h-power    1)
+		   (m-inf      s_inf)
+		   (m-tau      tau_s)
+		   (h-inf      u_inf)
+		   (h-tau      tau_u)
+		   ))
+		 )
+      
+      (component (type pore)
+		 (const  gbar  = 0.00046)
+		 (output gbar ))
+      
+      (component (type permeating-ion) (name ca)
+		 (const F = 96485.3)
+		 (const R = 8.31342)
+		 (e = ((1e3) * (R * (celsius + 273.15)) / (2 * F) * ln (cao / cai)))
+		 (output e)
+		 )
+      
+      ) ;; end CaHVA current
+
+   (component (type voltage-clamp) (name CaHVA)
+	      
+	      (const vchold   = -71)
+	      (const vcbase   = -69)
+	      (const vcinc    = 10)
+	      (const vcsteps  = 8)
+	      (const vchdur   = 30)
+	      (const vcbdur   = 100)
+
+              (component (type default-concentration) (name ca)
+              	      (const cn       = 5e-5)
+                      (const cnout    = 2)
+                      (output cn cnout))
+	      
+	      (output vchold vcbase vcinc vcsteps vchdur vcbdur )
+
+	      )
+
+
+
+   (component (type ionic-current) (name KA )
+
+	      (defun sigm (x y) (1 / (exp (x / y) + 1)))
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+
+			 (Q10 = (pow (3 ((celsius - 25.5) / 10))))
+
+			 (const Aalpha_a  = 0.8147)
+			 (const Kalpha_a  = -23.32708)
+			 (const V0alpha_a = -9.17203)
+			 (const Abeta_a   = 0.1655)
+			 (const Kbeta_a   = 19.47175)
+			 (const V0beta_a  = -18.27914)
+
+			 (const Aalpha_b  = 0.0368)
+			 (const Kalpha_b  = 12.8433)
+			 (const V0alpha_b = -111.33209)
+			 (const Abeta_b   = 0.0345)
+			 (const Kbeta_b   = -8.90123)
+			 (const V0beta_b  = -49.9537)
+
+			 (const V0_ainf = -38)
+			 (const  K_ainf = -17)
+
+			 (const V0_binf   = -78.8)
+			 (const K_binf    = 8.4)
+
+			 
+			 ;; rate functions
+
+			 (defun alpha_a (v Q10)
+			   (Q10 * Aalpha_a * sigm((v - V0alpha_a) Kalpha_a)))
+
+			 (defun beta_a (v Q10)
+			   (Q10 * (Abeta_a / exp((v - V0beta_a) / Kbeta_a))))
+
+			 (defun alpha_b (v Q10)
+			   (Q10 * Aalpha_b * sigm((v - V0alpha_b) Kalpha_b)))
+
+			 (defun beta_b (v Q10)
+			   (Q10 * Abeta_b * sigm((v - V0beta_b) Kbeta_b)))
+
+			 (a_inf = (1 / (1 + exp ((v - V0_ainf) / K_ainf)))) 
+			 (tau_a = (1 / (alpha_a (v Q10) + beta_a (v Q10)) ))
+			 (b_inf = (1 / (1 + exp ((v - V0_binf) / K_binf))))
+			 (tau_b = (1 / (alpha_b (v Q10) + beta_b (v Q10)) ))
+
+			 (hh-ionic-gate 
+			  (KA  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  (1 / (1 + exp ((v - V0_ainf) / K_ainf))) )
+			   (initial-h  (1 / (1 + exp ((v - V0_binf) / K_binf))) )
+			   (m-power    3)
+			   (h-power    1)
+			   (m-inf      a_inf)
+			   (m-tau      tau_a)
+			   (h-inf      b_inf)
+			   (h-tau      tau_b)
+			   ))
+
+			 )
+
+	      	      
+	      (component (type pore)
+			 (const  gbar  = 0.0032)
+			 (output gbar ))
+
+	      
+	      (component (type permeating-ion) (name k)
+			 (const e = -84.69)
+			 (output e ))
+	      
+	      ) ;; end KA current
+	      
+
+	      (component (type voltage-clamp) (name KA)
+           
+			 (const vchold   = -71)
+			 (const vcbase   = -69)
+			 (const vcinc    = 10)
+			 (const vcsteps  = 8)
+			 (const vchdur   = 30)
+			 (const vcbdur   = 100)
+           
+			 (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+			 )
+   
+
+   (component (type ionic-current) (name KCa )
+
+
+      (input
+       (cai from ion-pools))
+
+	      
+      (component (type gate)
+		 
+		 ;; rate constants
+		 (Q10 = (pow (3 ((celsius - 30) / 10))))
+		 
+		 (const Aalpha_c = 2.5)
+		 (const Balpha_c = 1.5e-3)
+		 
+		 (const Kalpha_c =  -11.765)
+		 
+		 (const Abeta_c = 1.5)
+		 (const Bbeta_c = 0.15e-3)
+
+		 (const Kbeta_c = -11.765)
+
+		 (cai1 = (if (cai < 1e-4) then 1e-4 else cai))
+
+		 ;; rate functions
+		 (defun alpha_c (v cai Q10)
+		   (Q10 * Aalpha_c / (1 + (Balpha_c * exp(v / Kalpha_c) / cai ))))
+		 
+		 (defun beta_c (v cai Q10)
+		   (Q10 * Abeta_c / (1 + (cai / (Bbeta_c * exp (v / Kbeta_c))) )))
+
+                 (c_inf = ((alpha_c (v cai Q10)) / (alpha_c (v cai Q10) + beta_c (v cai Q10)) ))
+                 (tau_c = (1 / (alpha_c (v cai Q10) + beta_c (v cai Q10)) ))
+
+		 (hh-ionic-gate 
+		  (KCa  ;; ion name: exported variables will be of the form {ion}_{id}
+		   (initial-m  c_inf)
+		   (m-power    1)
+		   (h-power    0)
+                   (m-inf      c_inf) 
+                   (m-tau      tau_c)
+		   ))
+		 
+		 )
+      
+      (component (type pore)
+		 (const  gbar  = 0.04)
+		 (output gbar ))
+      
+      
+      (component (type permeating-ion) (name k)
+		 (const e = -84.69)
+		 (output e ))
+      
+      (component (type modulating-ion) (name ca)
+		 )
+	      
+      ) ;; end KCa current
+
+   (component (type voltage-clamp) (name KCa)
+	      
+	      (const vchold   = -71)
+	      (const vcbase   = -69)
+	      (const vcinc    = 10)
+	      (const vcsteps  = 8)
+	      (const vchdur   = 30)
+	      (const vcbdur   = 100)
+
+	      (const cnhold   = 1e-4)
+	      (const cnbase   = 1e-4)
+	      (const cninc    = 1e3)
+	      (const cnsteps  = 1)
+	      (const cnout    = 2)
+	      
+	      (output vchold vcbase vcinc vcsteps vchdur vcbdur 
+                      cnhold cnbase cninc cnsteps cnout)
+	      )
+
+
+
+   (component (type ionic-current) (name Kir )
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+			 (Q10 = (pow (3 ((celsius - 20) / 10))))
+
+			 (const Aalpha_d = 0.13289)
+			 (const Kalpha_d = -24.3902)
+
+			 (const V0alpha_d = -83.94)
+			 (const Abeta_d   = 0.16994)
+
+			 (const Kbeta_d = 35.714)
+			 (const V0beta_d = -83.94)
+   
+			 ;; rate functions
+			 (defun alpha_d (v Q10)
+			   (Q10 * Aalpha_d * exp((v - V0alpha_d) / Kalpha_d)))
+			 
+			 (defun beta_d (v Q10)
+			   (Q10 * Abeta_d * exp((v - V0beta_d) / Kbeta_d) ))
+
+			 (d_inf = ((alpha_d (v Q10)) / (alpha_d (v Q10) + beta_d (v Q10)) ))
+			 (tau_d = (1 / (alpha_d (v Q10) + beta_d (v Q10)) ))
+
+			 (hh-ionic-gate 
+			  (Kir  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  d_inf)
+			   (m-power    1)
+			   (h-power    0)
+			   (m-inf      (d_inf))
+			   (m-tau      (tau_d))
+			   ))
+			 
+			 )
+
+
+	      (component (type pore)
+			 (const  gbar  = 0.0009)
+			 (output gbar ))
+
+	      
+	      (component (type permeating-ion) (name k)
+			 (const e = -84.69)
+			 (output e ))
+	      
+	      ) ;; end Kir current
+
+	      	      
+
+   (component (type voltage-clamp) (name Kir)
+	      
+	      (const vchold   = -71)
+	      (const vcbase   = -69)
+	      (const vcinc    = 10)
+	      (const vcsteps  = 8)
+	      (const vchdur   = 30)
+	      (const vcbdur   = 100)
+	      
+	      (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+	      )
+
+
+   (component (type ionic-current) (name KM )
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+			 (const Aalpha_n = 0.0033)
+
+			 (const Kalpha_n  = 40)
+			 (const V0alpha_n = -30)
+			 (const Abeta_n   = 0.0033)
+
+			 (const Kbeta_n  = -20)
+			 (const V0beta_n = -30)
+			 (const V0_ninf  = -35)
+			 (const   B_ninf = 6)
+			 
+			 (Q10 = (pow (3 ((celsius - 22) / 10))))
+			 
+			 ;; rate equations
+			 (defun alpha_n (v Q10)
+			   (Q10 * Aalpha_n * exp((v - V0alpha_n) / Kalpha_n) ))
+
+			 (defun beta_n (v Q10)
+			   (Q10 * Abeta_n * exp((v - V0beta_n) / Kbeta_n) ))
+
+			 (hh-ionic-gate 
+			  (KM  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  (1 / (1 + exp((neg (v - V0_ninf)) / B_ninf))))
+			   (m-power    1)
+			   (h-power    0)
+			   (m-tau      (1 / (alpha_n(v Q10) + beta_n (v Q10)) ))
+			   (m-inf      (1 / (1 + exp((neg (v - V0_ninf)) / B_ninf))))
+			   ))
+			 )
+	      
+	      (component (type pore)
+			 (const  gbar  = 0.00025)
+			 (output gbar ))
+	      
+	      (component (type permeating-ion) (name k)
+			 (const e = -84.69)
+			 (output e ))
+	      
+	      ) ;; end KM current
+
+
+   (component (type voltage-clamp) (name KM)
+	      
+	      (const vchold   = -71)
+	      (const vcbase   = -69)
+	      (const vcinc    = 10)
+	      (const vcsteps  = 8)
+	      (const vchdur   = 30)
+	      (const vcbdur   = 100)
+	      
+	      (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+	      )
+
+   (component (type ionic-current) (name KV )
+
+	      (defun linoid (x y) 
+		(if ((abs (x / y)) < 1e-6) 
+		    then (y * (1 - ((x / y) / 2)))
+		    else (x / (exp (x / y) - 1))
+		    ))
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+			 (Q10 = (pow (3 ((celsius - 6.3) / 10))))
+
+			 (const Aalpha_n = -0.01)
+			 (const Kalpha_n = -10)
+			 (const V0alpha_n = -25)
+			 (const Abeta_n = 0.125)
+	
+			 (const Kbeta_n = -80)
+			 (const V0beta_n = -35)
+
+			 ;; rate functions
+			 (defun alpha_n (v Q10) 
+			   (Q10 * Aalpha_n * linoid ((v - V0alpha_n) Kalpha_n)))
+
+			 (defun beta_n (v Q10) 
+			   (Q10 * Abeta_n * exp((v - V0beta_n) / Kbeta_n) ))
+
+
+                         (n_inf = ((alpha_n (v Q10)) / (alpha_n (v Q10) + beta_n (v Q10)) ))
+                         (tau_n = (1 / (alpha_n (v Q10) + beta_n (v Q10)) ))
+
+			 (hh-ionic-gate 
+			  (KV  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  n_inf)
+			   (m-power    4)
+			   (h-power    0)
+			   (m-inf     (n_inf))
+			   (m-tau     (tau_n))
+			   ))
+			 )
+
+
+	      (component (type pore)
+			 (const  gbar  = 0.003)
+			 (output gbar ))
+	      
+	      (component (type permeating-ion) (name k)
+			 (const e = -84.69)
+			 (output e ))
+	      
+	      ) ;; end KV current
+	      
+
+   (component (type voltage-clamp) (name KV)
+	      
+	      (const vchold   = -71)
+	      (const vcbase   = -69)
+	      (const vcinc    = 10)
+	      (const vcsteps  = 8)
+	      (const vchdur   = 30)
+	      (const vcbdur   = 100)
+	      
+	      (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+	      )
+	      
+   
+   (component (type ionic-current) (name Lkg1)
+	      
+	      (component (type pore)
+			 (const  gbar  = (5.68e-5))
+			 (output gbar))
+	      
+	      (component (type permeating-ion) (name non-specific)
+			 (const e = -16.5)
+			 (output e ))
+	      
+	      ) ;; end leak current
+
+
+   (component (type ionic-current) (name Lkg2)
+	      
+	      (component (type pore)
+			 (const  ggaba  = (3e-5))
+			 (output ggaba))
+	      
+	      (component (type permeating-ion) (name non-specific)
+			 (const egaba = -65)
+			 (output egaba ))
+	      
+	      ) ;; end leak current
+
+
+   (component (type ionic-current) (name Na )
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+			 (Q10 = (pow (3 ((celsius - 20) / 10))))
+
+			 (const Aalfa = 353.91)
+			 (const Valfa = 13.99)
+			 (const Abeta = 1.272)
+			 (const Vbeta = 13.99)
+			 (const Agamma = 150)
+			 (const Adelta = 40)
+			 (const Aepsilon = 1.75)
+			 (const Ateta = 0.0201)
+			 (const Vteta = 25)
+			 (const ACon = 0.005)
+			 (const ACoff = 0.5)
+			 (const	AOon = 0.75)
+			 (const	AOoff = 0.005)
+			 (const n1 = 5.422)
+			 (const n2 = 3.279)
+			 (const n3 = 1.83)
+			 (const n4 = 0.738)
+	
+			 (gamma = (Q10 * Agamma))
+			 (delta = (Q10 * Adelta))
+			 (epsilon = (Q10 * Aepsilon))
+			 (Con = (Q10 * ACon))
+			 (Coff = (Q10 * ACoff))
+			 (Oon = (Q10 * AOon))
+			 (Ooff = (Q10 * AOoff))
+			 (a = (pow ((Oon / Con) (1.0 / 4.0))))
+			 (b = (pow ((Ooff / Coff) (1.0 / 4.0))))
+
+			 ;; rate functions
+			 (defun alfa (v Q10)	
+			   (Q10 * Aalfa * exp (v / Valfa)))
+
+			 (defun beta (v Q10)
+			   (Q10 * Abeta * exp (neg (v) / Vbeta)))
+
+			 (defun teta (v Q10)
+			   (Q10 * Ateta * exp (neg (v) / Vteta)))
+				
+
+			 (reaction
+			  (Na_z
+			   (transitions
+			    (<-> C1 C2 (n1 * alfa (v Q10)) (n4 * beta (v Q10)))
+			    (<-> C2 C3 (n2 * alfa (v Q10)) (n3 * beta (v Q10)))
+			    (<-> C3 C4 (n3 * alfa (v Q10)) (n2 * beta (v Q10)))
+			    (<-> C4 C5 (n4 * alfa (v Q10)) (n1 * beta (v Q10)))
+			    (<-> C5 O  gamma delta)
+			    (<-> O  B  epsilon (teta (v Q10)))
+
+			    (<-> I1 I2 (n1 * alfa (v Q10) * a) (n4 * beta (v Q10) * b))
+			    (<-> I2 I3 (n2 * alfa (v Q10) * a) (n3 * beta (v Q10) * b))
+			    (<-> I3 I4 (n3 * alfa (v Q10) * a) (n2 * beta (v Q10) * b))
+			    (<-> I4 I5 (n4 * alfa (v Q10) * a) (n1 * beta (v Q10) * b))
+			    (<-> I5 I6 gamma delta)
+
+			    (<-> C1 I1 Con Coff)
+			    (<-> C2 I2 (Con * a) (Coff * b))
+			    (<-> C3 I3 (Con * pow (a 2)) (Coff * pow (b 2)))
+			    (<-> C4 I4 (Con * pow (a 3)) (Coff * pow (b 3)))
+			    (<-> C5 I5 (Con * pow (a 4)) (Coff * pow (b 4)))
+
+			    (O <-> I6 Oon Ooff))
+			   
+			   (conserve ((1 = (C1 + C2 + C3 + C4 + C5 + O + B + I1 + I2 + I3 + I4 + I5 + I6))))
+		     
+			   (open O)   (power 1)))
+
+			 (output Na_z )  
+
+			 )
+	      
+	      (component (type pore)
+			 (const  gbar  = 0.013)
+			 (output gbar ))
+
+	      
+	      (component (type permeating-ion) (name na)
+			 (const e = 87.39)
+			 (output e ))
+	      
+	      ) ;; end Na current
+
+   (component (type voltage-clamp) (name Na)
+
+	      (const vchold   = -71)
+	      (const vcbase   = -60)
+	      (const vcinc    = 10)
+	      (const vcsteps  = 9)
+	      (const vchdur   = 30)
+	      (const vcbdur   = 100)
+           
+	      (output vchold vcbase vcinc vcsteps vchdur vcbdur))
+
+      )
+
+;; Following are templates for various driver scripts used to run this model
+   (
+    (".hoc" ()  
+#<<EOF
+
+create soma
+access soma
+
+insert {{model_name}}
+
+soma {
+        nseg = 1 
+
+{% with diam = default(diam, 11.8), L = default(L, 11.8) %}
+        diam = {{diam}}
+        L = {{L}} 
+{% endwith %}
+
+        cm = 1
+
+        Ra = 100
+    }
+EOF
+)
+
+    ("template.hoc" ()  
+#<<EOF
+
+begintemplate GC
+public soma
+
+create soma
+
+proc init() {
+
+  soma {
+     
+    nseg=1
+
+{% with diam = default(diam, 11.8), L = default(L, 11.8) %}
+    diam = {{diam}}
+    L = {{L}} 
+{% endwith %}
+
+    Ra=100
+    cm=1
+    celsius = 30
+
+    insert {{model_name}}_CaHVA
+    insert {{model_name}}_ca
+    insert {{model_name}}_KA
+    insert {{model_name}}_KCa
+    insert {{model_name}}_Kir    
+    insert {{model_name}}_KM
+    insert {{model_name}}_KV 
+    insert {{model_name}}_Lkg1 
+    insert {{model_name}}_Lkg2
+    insert {{model_name}}_Na
+
+   }
+}
+
+endtemplate GC
+
+
+EOF
+)
+
+    ("syn_template.hoc" ()  
+#<<EOF
+
+begintemplate GC
+
+public soma, syn, nclist
+
+objref syn[5]
+objref nclist
+
+create soma
+
+proc init() {
+
+nclist = new List()
+    
+
+soma {
+     
+    nseg=1
+
+{% with diam = default(diam, 11.8), L = default(L, 11.8) %}
+    diam = {{diam}}
+    L = {{L}} 
+{% endwith %}
+
+    Ra=100
+    cm=1
+    celsius = 30
+
+    insert {{model_name}}_CaHVA
+    insert {{model_name}}_ca
+    insert {{model_name}}_KA
+    insert {{model_name}}_KCa
+    insert {{model_name}}_Kir    
+    insert {{model_name}}_KM
+    insert {{model_name}}_KV 
+    insert {{model_name}}_Lkg1 
+    insert {{model_name}}_Lkg2
+    insert {{model_name}}_Na
+    
+}
+
+for i=0,4 {
+    syn[i] = new Granule_AMPA(0)
+}
+
+}
+
+endtemplate GC
+
+EOF
+)
+
+
+    ("protocol.hoc" ()  
+
+#<<EOF
+
+// Load the Granule cell template
+
+xopen("{{model_name}}_template.hoc")
+
+objref gc
+gc = new GC()
+
+v_init = -70
+
+celsius = 30 
+
+{% with tstop = default(tstop, 1000) %}
+tstop = {{tstop}} // for IClamp
+{% endwith %}
+
+dt = 0.025
+
+stim_amp=0.01875
+
+objectvar stim
+gc.soma stim = new IClamp(0.5)
+stim.del = 1000
+stim.dur = 1850
+stim.amp = stim_amp
+ 
+objref rec_v
+rec_v = new Vector()
+rec_v.record (&gc.soma.v(0.5))
+
+objref rec_t
+rec_t = new Vector()
+rec_t.record (&t)
+
+dt = 0.025
+tstop = 3000
+run()
+
+objref output_file
+output_file = new File()
+output_file.wopen("{{model_name}}.dat")
+
+for (i=0; i < rec_v.size(); i=i+1) {
+  output_file.printf("%g %g\n", rec_t.x[i], rec_v.x[i])
+}
+
+output_file.close()
+quit()
+	
+
+EOF
+)
+
+    ("netstim_protocol.hoc" ()  
+#<<EOF
+load_file("nrngui.hoc")
+
+load_file( "{{model_name}}_syn_template.hoc" )
+
+objref gc
+gc = new GC()
+
+prelength = 1000
+mainlength = 6000
+
+
+//**********************************************************************
+proc simulate() { local preDT, mainDT, logsize  localobj logfile, tlog, Vlog, iklog, inalog, icalog, ica2log
+    
+    mainDT = 0.025
+    preDT = 0.025
+    
+    dt = preDT
+    tstop = prelength
+    run()
+    
+    
+    if ( stoprun == 1) return
+    
+    dt = mainDT
+    continuerun(prelength + mainlength)
+    if ( stoprun == 1) return
+    
+    logfile=$o1
+    tlog=$o2
+    Vlog=$o3
+    iklog=$o4
+    inalog=$o5
+    icalog=$o6
+    
+    logsize = tlog.size()
+    
+    for i=0,tlog.size()-1 {
+	logfile.printf("%g %g %g %g %g\n", tlog.x[i], Vlog.x[i], iklog.x[i], inalog.x[i], icalog.x[i])
+    }
+
+}
+
+
+//*************User-Interface*******************************************
+
+nrnsecmenu(0.5, 1)
+
+xpanel("Spontaneous firing")
+xvalue("Time for Initialization", "prelength")
+xvalue("Main duration", "mainlength")
+
+xvalue("dt", "dt")
+xvalue("t", "t")
+xlabel("")
+xbutton("Start", "simulate()")
+xbutton("Stop", "stoprun = 1")
+xpanel()
+
+vec_sizes = (prelength+mainlength)/dt + 1	// recorded traces are all this size
+
+strdef logfn
+objref ns, iklog, inalog, icalog, Vlog, tlog, logfile
+
+objref stim_rates // input stimulus rates
+
+nrates = 5
+stim_rates = new Vector (nrates)
+stim_rates.x[0] = 1
+stim_rates.x[1] = 20
+stim_rates.x[2] = 50
+stim_rates.x[3] = 100
+stim_rates.x[4] = 200
+
+for (k=0; k < nrates; k = k + 1) {
+
+  ns = new NetStim()
+  ns.start    = 1000
+  ns.number   = 100000
+  ns.noise    = 1
+  ns.interval = (1 / stim_rates.x[k]) * 1000
+
+  gc.nclist.append (new NetCon(ns,gc.syn[0],-20,1,0.1))
+  gc.nclist.append (new NetCon(ns,gc.syn[1],-20,12,0.1))
+  gc.nclist.append (new NetCon(ns,gc.syn[2],-20,15,0.1))
+  gc.nclist.append (new NetCon(ns,gc.syn[3],-20,17,0.1))
+  gc.nclist.append (new NetCon(ns,gc.syn[4],-20,19,0.1))
+
+  iklog = new Vector(vec_sizes)
+  iklog.record (&gc.soma.ik(0.5))
+
+  inalog = new Vector(vec_sizes)
+  inalog.record (&gc.soma.ina(0.5))
+
+  icalog = new Vector(vec_sizes)
+  icalog.record (&gc.soma.ica(0.5))
+
+  Vlog = new Vector(vec_sizes)
+  Vlog.record (&gc.soma.v(0.5))
+
+  tlog = new Vector(vec_sizes,0)
+  tlog.record (&t)
+
+  sprint (logfn, "Granule_netstim_protocol_%d_Hz.dat", stim_rates.x[k] )
+
+  logfile = new File()
+  logfile.wopen ( logfn  )
+
+  simulate(logfile,tlog,Vlog,iklog,inalog,icalog)
+  logfile.close()
+}
+
+quit()
+EOF
+)
+
+
+
+    ("octave_odepkg_run.m" ()  
+
+#<<EOF
+
+## {{model_name}} model driver for Octave/odepkg
+
+{{model_name}}_defs = "{{model_name}}.m";
+
+autoload ("{{model_name}}", {{model_name}}_defs );
+autoload ("{{model_name}}_init", {{model_name}}_defs );
+
+{{model_name}}_init; 
+
+global celsius cai 
+
+
+{% with cai = default(cai, 1e-4), celsius = default(celsius, 30) %}
+cai = {{cai}} ;
+celsius = {{celsius}} ;
+{% endwith %}
+
+y0 = {{model_name}}_init(-70)
+
+{% with tstop = default(tstop, 300) %}
+tstop = {{tstop}} ;
+{% endwith %}
+
+t0 = 0.0;
+t1 = tstop;
+
+dt = 1e-3;
+
+reltol=1e-2;
+abstol=1e-2;
+
+function y = step (x, k)
+  y = 1 ./ (1 + exp(-2 * k * x));
+end
+
+function y = stepp (x, k)
+  y = 2 ./ (1 + exp(2 * k * x));
+end
+
+function i = ifn(t,k,hc,cc,t1,t2)
+  i = hc + (cc - hc) .* step(t - t1,k) .* step(t2 - t,k);
+endfunction
+
+function [dy] = my{{model_name}}(t, y)
+
+  [dy] = {{model_name}}(t, y);
+
+  i_stim = ifn(t,3,0,0.01875,10,290);
+  
+  dy(1) = dy(1) + i_stim;
+
+endfunction
+
+
+P = odeset ('RelTol', reltol, 'AbsTol', abstol, 'MaxStep', 1e-1, 'InitialStep', dt,
+	   "OutputFcn", @odeplot);
+sol = ode2r (@my{{model_name}}, [t0 t1], y0, P);
+
+ys = [sol.x sol.y];
+
+N = size(ys)(1);
+{{model_name}}_v = [ys(:,1) ys(:,2)];
+save -ascii "{{model_name}}_v.dat" {{model_name}}_v;
+
+EOF
+) 
+
+
+    ("nestmodule_bootstrap.sh" ()  
+#<<EOF
+#!/bin/sh
+
+echo "Bootstrapping Granule module..."
+
+if test -d autom4te.cache ; then
+# we must remove this cache, because it
+# may screw up things if configure is run for
+# different platforms. 
+  echo "  -> Removing old automake cache ..."
+  rm -rf autom4te.cache
+fi
+
+echo "  -> Running aclocal ..."
+aclocal
+
+echo "  -> Running libtoolize ..."
+if [ `uname -s` = Darwin ] ; then
+# libtoolize is glibtoolize on OSX
+  LIBTOOLIZE=glibtoolize
+else  
+  LIBTOOLIZE=libtoolize
+fi
+
+libtool_major=`$LIBTOOLIZE --version | head -n1 | cut -d\) -f2 | cut -d\. -f1`
+$LIBTOOLIZE --force --copy --ltdl
+
+echo "  -> Re-running aclocal ..."
+if test $libtool_major -le 2; then
+  aclocal --force
+else
+  aclocal --force -I $(pwd)/libltdl/m4
+fi
+
+echo "  -> Running autoconf ..."
+autoconf
+
+# autoheader must run before automake 
+echo "  -> Running autoheader ..."
+autoheader
+
+echo "  -> Running automake ..."
+automake --foreign --add-missing --force-missing --copy
+
+echo "Done."
+
+EOF
+)
+
+    ("nestmodule_configure_gsl.ac" ()  
+#<<EOF
+AC_PREREQ(2.52)
+
+AC_INIT(granulemodule, 1.0, raikov@oist.jp)
+
+# These variables are exported to include/config.h
+GRANULEMODULE_MAJOR=1
+GRANULEMODULE_MINOR=0
+GRANULEMODULE_PATCHLEVEL=0
+
+# Exporting source and build directories requires full path names.
+# Thus we have to expand.
+# Here, we are in top build dir, since source dir must exist, we can just
+# move there and call pwd
+if test "x$srcdir" = x ; then
+  PKGSRCDIR=`pwd`
+else
+  PKGSRCDIR=`cd $srcdir && pwd`
+fi
+PKGBUILDDIR=`pwd`
+
+# If this is not called, install-sh will be put into .. by bootstrap.sh
+# moritz, 06-26-06
+AC_CONFIG_AUX_DIR(.)
+
+AM_INIT_AUTOMAKE(nest, $GRANULEMODULE_VERSION)
+
+# obtain host system type; HEP 2004-12-20
+AC_CANONICAL_HOST
+
+# ------------------------------------------------------------------------
+# Handle options
+#
+# NOTE: No programs/compilations must be run in this section;
+#       otherwise CFLAGS and CXXFLAGS may take on funny default
+#       values.
+#       HEP 2004-12-20
+# ------------------------------------------------------------------------
+
+# nest-config
+NEST_CONFIG=`which nest-config`
+AC_ARG_WITH(nest,[  --with-nest=script	nest-config script including path],
+[
+  if test "$withval" != yes; then
+    NEST_CONFIG=$withval
+  else
+    AC_MSG_ERROR([--with-nest-config expects the nest-config script as argument. See README for details.])
+  fi
+])
+
+# -------------------------------------------
+# END Handle options
+# -------------------------------------------
+
+
+# does nest-config work
+AC_MSG_CHECKING([for nest-config ])
+AC_CHECK_FILE($NEST_CONFIG, HAVE_NEST=yes, 
+              AC_MSG_ERROR([No usable nest-config was found. You may want to use --with-nest-config.]))
+AC_MSG_RESULT(found)
+
+# the following will crash if nest-config does not run
+# careful, lines below must not break
+AC_MSG_CHECKING([for NEST directory information ])
+NEST_PREFIX=`$NEST_CONFIG --prefix`
+NEST_CPPFLAGS=`$NEST_CONFIG --cflags`
+NEST_COMPILER=`$NEST_CONFIG --compiler`
+if test $prefix = NONE; then prefix=`$NEST_CONFIG --prefix`; fi
+AC_MSG_RESULT($NEST_CPPFLAGS)
+
+
+# Set the platform-dependent compiler flags based on the canonical
+# host string.  These flags are placed in AM_{C,CXX}FLAGS.  If
+# {C,CXX}FLAGS are given as environment variables, then they are
+# appended to the set of automatically chosen flags.  After
+# {C,CXX}FLAGS have been read out, they must be cleared, since
+# system-dependent defaults will otherwise be placed into the
+# Makefiles.  HEP 2004-12-20.
+
+# Before we can determine the proper compiler flags, we must know
+# which compiler we are using.  Since the pertaining AC macros run the
+# compiler and set CFLAGS, CXXFLAGS to system-dependent values, we
+# need to save command line/enviroment settings of these variables
+# first. AC_AIX must run before the compiler is run, so we must run it
+# here.
+# HEP 2004-12-21
+
+GRANULEMODULE_SAVE_CXXFLAGS=$CXXFLAGS
+
+# Must first check if we are on AIX
+AC_AIX
+
+# Check for C++ compiler, looking for the same compiler
+# used with NEST
+AC_PROG_CXX([ $NEST_COMPILER ])
+
+# the following is makeshift, should have the macro set proper
+# GRANULEMODULE_SET_CXXFLAGS
+AM_CXXFLAGS=$GRANULEMODULE_SAVE_CXXFLAGS
+CXXFLAGS=
+
+## Configure C environment
+
+AC_PROG_LD
+AC_PROG_INSTALL
+
+AC_LIBLTDL_CONVENIENCE	   ## put libltdl into a convenience library
+AC_PROG_LIBTOOL		   ## use libtool
+AC_CONFIG_SUBDIRS(libltdl) ## also configure subdir containing libltdl
+
+#-- Set the language to C++
+AC_LANG_CPLUSPLUS
+
+#-- Look for programs needed in the Makefile
+AC_PROG_CXXCPP
+AM_PROG_LIBTOOL
+AC_PATH_PROGS([MAKE],[gmake make],[make])
+
+# ---------------------------------------------------------------
+# Configure directories to be built
+# ---------------------------------------------------------------
+
+PKGDATADIR=$datadir/$PACKAGE
+PKGDOCDIR=$datadir/doc/$PACKAGE
+
+# set up directories from which to build help
+# second line replaces space with colon as separator
+HELPDIRS="$PKGSRCDIR $PKGSRCDIR/sli"
+HELPDIRS=`echo $HELPDIRS | tr " " ":"`
+
+#-- Replace these variables in *.in
+AC_SUBST(HAVE_NEST)
+AC_SUBST(NEST_CONFIG)
+AC_SUBST(NEST_CPPFLAGS)
+AC_SUBST(NEST_COMPILER)
+AC_SUBST(NEST_PREFIX)
+AC_SUBST(HELPDIRS)
+AC_SUBST(PKGSRCDIR)
+AC_SUBST(PKGBUILDDIR)
+AC_SUBST(PKGDATADIR)
+AC_SUBST(PKGDOCDIR)
+AC_SUBST(KERNEL)
+AC_SUBST(HOST)
+AC_SUBST(SED)
+AC_SUBST(LD)
+AC_SUBST(host_os)
+AC_SUBST(host_cpu)
+AC_SUBST(host_vendor)
+AC_SUBST(AS)
+AC_SUBST(CXX)
+AC_SUBST(AR)
+AC_SUBST(ARFLAGS)
+AC_SUBST(CXX_AR)
+AC_SUBST(AM_CXXFLAGS)
+AC_SUBST(AM_CFLAGS)
+AC_SUBST(MAKE)
+AC_SUBST(MAKE_FLAGS)
+AC_SUBST(INCLTDL)
+AC_SUBST(LIBLTDL)
+
+AM_CONFIG_HEADER(granulemodule_config.h:granulemodule_config.h.in)
+AC_CONFIG_FILES(Makefile)
+
+# -----------------------------------------------
+# Create output
+# -----------------------------------------------
+AC_OUTPUT
+
+
+# -----------------------------------------------
+# Report, after output at end of configure run
+# Must come after AC_OUTPUT, so that it is 
+# displayed after libltdl has been configured
+# -----------------------------------------------
+
+echo
+echo "-------------------------------------------------------"
+echo "Granule module Configuration Summary"
+echo "-------------------------------------------------------"
+echo
+echo "C++ compiler        : $CXX"
+echo "C++ compiler flags  : $AM_CXXFLAGS"
+echo "NEST compiler flags : $NEST_CPPFLAGS"
+
+# these variables will still contain '${prefix}'
+# we want to have the versions where this is resolved, too:
+eval eval eval  PKGDOCDIR_AS_CONFIGURED=$PKGDOCDIR
+eval eval eval  PKGDATADIR_AS_CONFIGURED=$PKGDATADIR
+
+echo
+echo "-------------------------------------------------------"
+echo
+echo "You can build and install Granule module now, using"
+echo "  make"
+echo "  make install"
+echo
+echo "Granule module will be installed to:"
+echo -n "  "; eval eval echo "$libdir"
+echo
+
+EOF
+)
+
+    ("nestmodule_configure_cvode.ac" ()  
+#<<EOF
+AC_PREREQ(2.52)
+
+AC_INIT(granulemodule, 1.0, raikov@oist.jp)
+
+# These variables are exported to include/config.h
+GRANULEMODULE_MAJOR=1
+GRANULEMODULE_MINOR=0
+GRANULEMODULE_PATCHLEVEL=0
+
+# Exporting source and build directories requires full path names.
+# Thus we have to expand.
+# Here, we are in top build dir, since source dir must exist, we can just
+# move there and call pwd
+if test "x$srcdir" = x ; then
+  PKGSRCDIR=`pwd`
+else
+  PKGSRCDIR=`cd $srcdir && pwd`
+fi
+PKGBUILDDIR=`pwd`
+
+# If this is not called, install-sh will be put into .. by bootstrap.sh
+# moritz, 06-26-06
+AC_CONFIG_AUX_DIR(.)
+
+AM_INIT_AUTOMAKE(nest, $GRANULEMODULE_VERSION)
+
+# obtain host system type; HEP 2004-12-20
+AC_CANONICAL_HOST
+
+# ------------------------------------------------------------------------
+# Handle options
+#
+# NOTE: No programs/compilations must be run in this section;
+#       otherwise CFLAGS and CXXFLAGS may take on funny default
+#       values.
+#       HEP 2004-12-20
+# ------------------------------------------------------------------------
+
+# nest-config
+NEST_CONFIG=`which nest-config`
+AC_ARG_WITH(nest,[  --with-nest=script	nest-config script including path],
+[
+  if test "$withval" != yes; then
+    NEST_CONFIG=$withval
+  else
+    AC_MSG_ERROR([--with-nest-config expects the nest-config script as argument. See README for details.])
+  fi
+])
+
+# -------------------------------------------
+# END Handle options
+# -------------------------------------------
+
+# sundials-config
+SUNDIALS_CONFIG=`which sundials-config`
+AC_ARG_WITH(sundials,[  --with-sundials=script	sundials-config script including path],
+[
+  if test "$withval" != yes; then
+    SUNDIALS_CONFIG=$withval
+#  else
+#    AC_MSG_ERROR([--with-sundials-config expects the sundials-config script as argument. See README for details.])
+  fi
+])
+
+
+# does nest-config work
+AC_MSG_CHECKING([for nest-config ])
+AC_CHECK_FILE($NEST_CONFIG, HAVE_NEST=yes, 
+              AC_MSG_ERROR([No usable nest-config was found. You may want to use --with-nest-config.]))
+AC_MSG_RESULT(found)
+
+AC_MSG_CHECKING([for sundials-config ])
+AC_CHECK_FILE($SUNDIALS_CONFIG, HAVE_SUNDIALS=yes, 
+              AC_MSG_WARN([No usable sundials-config was found. You may want to use --with-sundials-config.]))
+AC_MSG_RESULT(found)
+
+# the following will crash if nest-config does not run
+# careful, lines below must not break
+AC_MSG_CHECKING([for NEST directory information ])
+NEST_PREFIX=`$NEST_CONFIG --prefix`
+NEST_CPPFLAGS=`$NEST_CONFIG --cflags`
+NEST_COMPILER=`$NEST_CONFIG --compiler`
+if test $prefix = NONE; then prefix=`$NEST_CONFIG --prefix`; fi
+AC_MSG_RESULT($NEST_CPPFLAGS)
+
+
+AC_MSG_CHECKING([for SUNDIALS preprocessor flags ])
+SUNDIALS_CPPFLAGS="`$SUNDIALS_CONFIG -m cvode -t s -l c -s cppflags`"
+AC_MSG_RESULT($SUNDIALS_CPPFLAGS)
+
+AC_MSG_CHECKING([for SUNDIALS linker options ])
+SUNDIALS_LDFLAGS="`$SUNDIALS_CONFIG -m cvode -t s -l c -s libs` -lblas -llapack"
+AC_MSG_RESULT($SUNDIALS_LDFLAGS)
+
+# Set the platform-dependent compiler flags based on the canonical
+# host string.  These flags are placed in AM_{C,CXX}FLAGS.  If
+# {C,CXX}FLAGS are given as environment variables, then they are
+# appended to the set of automatically chosen flags.  After
+# {C,CXX}FLAGS have been read out, they must be cleared, since
+# system-dependent defaults will otherwise be placed into the
+# Makefiles.  HEP 2004-12-20.
+
+# Before we can determine the proper compiler flags, we must know
+# which compiler we are using.  Since the pertaining AC macros run the
+# compiler and set CFLAGS, CXXFLAGS to system-dependent values, we
+# need to save command line/enviroment settings of these variables
+# first. AC_AIX must run before the compiler is run, so we must run it
+# here.
+# HEP 2004-12-21
+
+GRANULEMODULE_SAVE_CXXFLAGS=$CXXFLAGS
+
+# Must first check if we are on AIX
+AC_AIX
+
+# Check for C++ compiler, looking for the same compiler
+# used with NEST
+AC_PROG_CXX([ $NEST_COMPILER ])
+
+# the following is makeshift, should have the macro set proper
+# GRANULEMODULE_SET_CXXFLAGS
+AM_CXXFLAGS=$GRANULEMODULE_SAVE_CXXFLAGS
+CXXFLAGS=
+
+## Configure C environment
+
+AC_PROG_LD
+AC_PROG_INSTALL
+
+AC_LIBLTDL_CONVENIENCE	   ## put libltdl into a convenience library
+AC_PROG_LIBTOOL		   ## use libtool
+AC_CONFIG_SUBDIRS(libltdl) ## also configure subdir containing libltdl
+
+#-- Set the language to C++
+AC_LANG_CPLUSPLUS
+
+#-- Look for programs needed in the Makefile
+AC_PROG_CXXCPP
+AM_PROG_LIBTOOL
+AC_PATH_PROGS([MAKE],[gmake make],[make])
+
+# ---------------------------------------------------------------
+# Configure directories to be built
+# ---------------------------------------------------------------
+
+PKGDATADIR=$datadir/$PACKAGE
+PKGDOCDIR=$datadir/doc/$PACKAGE
+
+# set up directories from which to build help
+# second line replaces space with colon as separator
+HELPDIRS="$PKGSRCDIR $PKGSRCDIR/sli"
+HELPDIRS=`echo $HELPDIRS | tr " " ":"`
+
+#-- Replace these variables in *.in
+AC_SUBST(HAVE_NEST)
+AC_SUBST(NEST_CONFIG)
+AC_SUBST(NEST_CPPFLAGS)
+AC_SUBST(NEST_COMPILER)
+AC_SUBST(NEST_PREFIX)
+AC_SUBST(HELPDIRS)
+AC_SUBST(PKGSRCDIR)
+AC_SUBST(PKGBUILDDIR)
+AC_SUBST(PKGDATADIR)
+AC_SUBST(PKGDOCDIR)
+AC_SUBST(KERNEL)
+AC_SUBST(HOST)
+AC_SUBST(SED)
+AC_SUBST(LD)
+AC_SUBST(host_os)
+AC_SUBST(host_cpu)
+AC_SUBST(host_vendor)
+AC_SUBST(AS)
+AC_SUBST(CXX)
+AC_SUBST(AR)
+AC_SUBST(ARFLAGS)
+AC_SUBST(CXX_AR)
+AC_SUBST(AM_CXXFLAGS)
+AC_SUBST(AM_CFLAGS)
+AC_SUBST(MAKE)
+AC_SUBST(MAKE_FLAGS)
+AC_SUBST(INCLTDL)
+AC_SUBST(LIBLTDL)
+AC_SUBST(SUNDIALS_CONFIG)
+AC_SUBST(SUNDIALS_CPPFLAGS)
+AC_SUBST(SUNDIALS_LDFLAGS)
+
+AM_CONFIG_HEADER(granulemodule_config.h:granulemodule_config.h.in)
+AC_CONFIG_FILES(Makefile)
+
+# -----------------------------------------------
+# Create output
+# -----------------------------------------------
+AC_OUTPUT
+
+
+# -----------------------------------------------
+# Report, after output at end of configure run
+# Must come after AC_OUTPUT, so that it is 
+# displayed after libltdl has been configured
+# -----------------------------------------------
+
+echo
+echo "-------------------------------------------------------"
+echo "Granule module Configuration Summary"
+echo "-------------------------------------------------------"
+echo
+echo "C++ compiler        : $CXX"
+echo "C++ compiler flags  : $AM_CXXFLAGS"
+echo "NEST compiler flags : $NEST_CPPFLAGS"
+echo "SUNDIALS compiler flags : $SUNDIALS_CPPFLAGS"
+echo "SUNDIALS linker flags : $SUNDIALS_LDFLAGS"
+
+# these variables will still contain '${prefix}'
+# we want to have the versions where this is resolved, too:
+eval eval eval  PKGDOCDIR_AS_CONFIGURED=$PKGDOCDIR
+eval eval eval  PKGDATADIR_AS_CONFIGURED=$PKGDATADIR
+
+echo
+echo "-------------------------------------------------------"
+echo
+echo "You can build and install Granule module now, using"
+echo "  make"
+echo "  make install"
+echo
+echo "Granule module will be installed to:"
+echo -n "  "; eval eval echo "$libdir"
+echo
+
+EOF
+)
+
+    ("nestmodule_configure_ida.ac" ()  
+#<<EOF
+AC_PREREQ(2.52)
+
+AC_INIT(granulemodule, 1.0, raikov@oist.jp)
+
+# These variables are exported to include/config.h
+GRANULEMODULE_MAJOR=1
+GRANULEMODULE_MINOR=0
+GRANULEMODULE_PATCHLEVEL=0
+
+# Exporting source and build directories requires full path names.
+# Thus we have to expand.
+# Here, we are in top build dir, since source dir must exist, we can just
+# move there and call pwd
+if test "x$srcdir" = x ; then
+  PKGSRCDIR=`pwd`
+else
+  PKGSRCDIR=`cd $srcdir && pwd`
+fi
+PKGBUILDDIR=`pwd`
+
+# If this is not called, install-sh will be put into .. by bootstrap.sh
+# moritz, 06-26-06
+AC_CONFIG_AUX_DIR(.)
+
+AM_INIT_AUTOMAKE(nest, $GRANULEMODULE_VERSION)
+
+# obtain host system type; HEP 2004-12-20
+AC_CANONICAL_HOST
+
+# ------------------------------------------------------------------------
+# Handle options
+#
+# NOTE: No programs/compilations must be run in this section;
+#       otherwise CFLAGS and CXXFLAGS may take on funny default
+#       values.
+#       HEP 2004-12-20
+# ------------------------------------------------------------------------
+
+# nest-config
+NEST_CONFIG=`which nest-config`
+AC_ARG_WITH(nest,[  --with-nest=script	nest-config script including path],
+[
+  if test "$withval" != yes; then
+    NEST_CONFIG=$withval
+  else
+    AC_MSG_ERROR([--with-nest-config expects the nest-config script as argument. See README for details.])
+  fi
+])
+
+# -------------------------------------------
+# END Handle options
+# -------------------------------------------
+
+# sundials-config
+SUNDIALS_CONFIG=`which sundials-config`
+AC_ARG_WITH(sundials,[  --with-sundials=script	sundials-config script including path],
+[
+  if test "$withval" != yes; then
+    SUNDIALS_CONFIG=$withval
+#  else
+#    AC_MSG_ERROR([--with-sundials-config expects the sundials-config script as argument. See README for details.])
+  fi
+])
+
+
+# does nest-config work
+AC_MSG_CHECKING([for nest-config ])
+AC_CHECK_FILE($NEST_CONFIG, HAVE_NEST=yes, 
+              AC_MSG_ERROR([No usable nest-config was found. You may want to use --with-nest-config.]))
+AC_MSG_RESULT(found)
+
+AC_MSG_CHECKING([for sundials-config ])
+AC_CHECK_FILE($SUNDIALS_CONFIG, HAVE_SUNDIALS=yes, 
+              AC_MSG_WARN([No usable sundials-config was found. You may want to use --with-sundials-config.]))
+AC_MSG_RESULT(found)
+
+# the following will crash if nest-config does not run
+# careful, lines below must not break
+AC_MSG_CHECKING([for NEST directory information ])
+NEST_PREFIX=`$NEST_CONFIG --prefix`
+NEST_CPPFLAGS=`$NEST_CONFIG --cflags`
+NEST_COMPILER=`$NEST_CONFIG --compiler`
+if test $prefix = NONE; then prefix=`$NEST_CONFIG --prefix`; fi
+AC_MSG_RESULT($NEST_CPPFLAGS)
+
+
+AC_MSG_CHECKING([for SUNDIALS preprocessor flags ])
+SUNDIALS_CPPFLAGS="`$SUNDIALS_CONFIG -m ida -t s -l c -s cppflags`"
+AC_MSG_RESULT($SUNDIALS_CPPFLAGS)
+
+AC_MSG_CHECKING([for SUNDIALS linker options ])
+SUNDIALS_LDFLAGS="`$SUNDIALS_CONFIG -m ida -t s -l c -s libs` -lblas -llapack"
+AC_MSG_RESULT($SUNDIALS_LDFLAGS)
+
+# Set the platform-dependent compiler flags based on the canonical
+# host string.  These flags are placed in AM_{C,CXX}FLAGS.  If
+# {C,CXX}FLAGS are given as environment variables, then they are
+# appended to the set of automatically chosen flags.  After
+# {C,CXX}FLAGS have been read out, they must be cleared, since
+# system-dependent defaults will otherwise be placed into the
+# Makefiles.  HEP 2004-12-20.
+
+# Before we can determine the proper compiler flags, we must know
+# which compiler we are using.  Since the pertaining AC macros run the
+# compiler and set CFLAGS, CXXFLAGS to system-dependent values, we
+# need to save command line/enviroment settings of these variables
+# first. AC_AIX must run before the compiler is run, so we must run it
+# here.
+# HEP 2004-12-21
+
+GRANULEMODULE_SAVE_CXXFLAGS=$CXXFLAGS
+
+# Must first check if we are on AIX
+AC_AIX
+
+# Check for C++ compiler, looking for the same compiler
+# used with NEST
+AC_PROG_CXX([ $NEST_COMPILER ])
+
+# the following is makeshift, should have the macro set proper
+# GRANULEMODULE_SET_CXXFLAGS
+AM_CXXFLAGS=$GRANULEMODULE_SAVE_CXXFLAGS
+CXXFLAGS=
+
+## Configure C environment
+
+AC_PROG_LD
+AC_PROG_INSTALL
+
+AC_LIBLTDL_CONVENIENCE	   ## put libltdl into a convenience library
+AC_PROG_LIBTOOL		   ## use libtool
+AC_CONFIG_SUBDIRS(libltdl) ## also configure subdir containing libltdl
+
+#-- Set the language to C++
+AC_LANG_CPLUSPLUS
+
+#-- Look for programs needed in the Makefile
+AC_PROG_CXXCPP
+AM_PROG_LIBTOOL
+AC_PATH_PROGS([MAKE],[gmake make],[make])
+
+# ---------------------------------------------------------------
+# Configure directories to be built
+# ---------------------------------------------------------------
+
+PKGDATADIR=$datadir/$PACKAGE
+PKGDOCDIR=$datadir/doc/$PACKAGE
+
+# set up directories from which to build help
+# second line replaces space with colon as separator
+HELPDIRS="$PKGSRCDIR $PKGSRCDIR/sli"
+HELPDIRS=`echo $HELPDIRS | tr " " ":"`
+
+#-- Replace these variables in *.in
+AC_SUBST(HAVE_NEST)
+AC_SUBST(NEST_CONFIG)
+AC_SUBST(NEST_CPPFLAGS)
+AC_SUBST(NEST_COMPILER)
+AC_SUBST(NEST_PREFIX)
+AC_SUBST(HELPDIRS)
+AC_SUBST(PKGSRCDIR)
+AC_SUBST(PKGBUILDDIR)
+AC_SUBST(PKGDATADIR)
+AC_SUBST(PKGDOCDIR)
+AC_SUBST(KERNEL)
+AC_SUBST(HOST)
+AC_SUBST(SED)
+AC_SUBST(LD)
+AC_SUBST(host_os)
+AC_SUBST(host_cpu)
+AC_SUBST(host_vendor)
+AC_SUBST(AS)
+AC_SUBST(CXX)
+AC_SUBST(AR)
+AC_SUBST(ARFLAGS)
+AC_SUBST(CXX_AR)
+AC_SUBST(AM_CXXFLAGS)
+AC_SUBST(AM_CFLAGS)
+AC_SUBST(MAKE)
+AC_SUBST(MAKE_FLAGS)
+AC_SUBST(INCLTDL)
+AC_SUBST(LIBLTDL)
+AC_SUBST(SUNDIALS_CONFIG)
+AC_SUBST(SUNDIALS_CPPFLAGS)
+AC_SUBST(SUNDIALS_LDFLAGS)
+
+AM_CONFIG_HEADER(granulemodule_config.h:granulemodule_config.h.in)
+AC_CONFIG_FILES(Makefile)
+
+# -----------------------------------------------
+# Create output
+# -----------------------------------------------
+AC_OUTPUT
+
+
+# -----------------------------------------------
+# Report, after output at end of configure run
+# Must come after AC_OUTPUT, so that it is 
+# displayed after libltdl has been configured
+# -----------------------------------------------
+
+echo
+echo "-------------------------------------------------------"
+echo "Granule module Configuration Summary"
+echo "-------------------------------------------------------"
+echo
+echo "C++ compiler        : $CXX"
+echo "C++ compiler flags  : $AM_CXXFLAGS"
+echo "NEST compiler flags : $NEST_CPPFLAGS"
+echo "SUNDIALS compiler flags : $SUNDIALS_CPPFLAGS"
+echo "SUNDIALS linker flags : $SUNDIALS_LDFLAGS"
+
+# these variables will still contain '${prefix}'
+# we want to have the versions where this is resolved, too:
+eval eval eval  PKGDOCDIR_AS_CONFIGURED=$PKGDOCDIR
+eval eval eval  PKGDATADIR_AS_CONFIGURED=$PKGDATADIR
+
+echo
+echo "-------------------------------------------------------"
+echo
+echo "You can build and install Granule module now, using"
+echo "  make"
+echo "  make install"
+echo
+echo "Granule module will be installed to:"
+echo -n "  "; eval eval echo "$libdir"
+echo
+
+EOF
+)
+
+    ("nestmodule_makefile_gsl.am" ()  
+#<<EOF
+
+# Automake file for external dynamic modules for NEST
+#
+# Hans Ekkehard Plesser, April 2008
+# Automake file for the Developer Module
+# 
+# libgranulemodule is built as a normal, installable library.
+# It will be installed to $prefix/lib by make install.
+# 
+# Headers from this directory are not to be installed upon
+# make install. They are therefore included in _SOURCES.
+
+
+libdir= @libdir@/nest
+
+lib_LTLIBRARIES=      granulemodule.la libgranulemodule.la
+
+granulemodule_la_CXXFLAGS= @AM_CXXFLAGS@
+granulemodule_la_SOURCES=  granulemodule.cpp      granulemodule.h      \
+                      Granule.cpp Granule.h 
+granulemodule_la_LDFLAGS=  -module
+
+libgranulemodule_la_CXXFLAGS= $(granulemodule_la_CXXFLAGS) -DLINKED_MODULE
+libgranulemodule_la_SOURCES=  $(granulemodule_la_SOURCES)
+
+MAKEFLAGS= @MAKE_FLAGS@
+
+AM_CPPFLAGS= @NEST_CPPFLAGS@ \
+             @INCLTDL@      
+
+AM_LDFLAGS = 
+
+.PHONY: install-slidoc
+
+nobase_pkgdata_DATA=\
+	granulemodule.sli
+
+install-slidoc:
+	NESTRCFILENAME=/dev/null $(DESTDIR)$(NEST_PREFIX)/bin/sli --userargs="@HELPDIRS@" $(NEST_PREFIX)/share/nest/sli/install-help.sli
+
+install-data-hook: install-exec install-slidoc
+
+EXTRA_DIST= sli
+
+EOF
+)
+
+    ("nestmodule_makefile_sundials.am" ()  
+#<<EOF
+
+# Automake file for external dynamic modules for NEST
+#
+# Hans Ekkehard Plesser, April 2008
+# Automake file for the Developer Module
+# 
+# libgranulemodule is built as a normal, installable library.
+# It will be installed to $prefix/lib by make install.
+# 
+# Headers from this directory are not to be installed upon
+# make install. They are therefore included in _SOURCES.
+
+
+libdir= @libdir@/nest
+
+lib_LTLIBRARIES=      granulemodule.la libgranulemodule.la
+
+granulemodule_la_CXXFLAGS= @AM_CXXFLAGS@
+granulemodule_la_SOURCES=  granulemodule.cpp      granulemodule.h      \
+                      Granule.cpp Granule.h 
+granulemodule_la_LDFLAGS=  -module
+
+libgranulemodule_la_CXXFLAGS= $(granulemodule_la_CXXFLAGS) -DLINKED_MODULE
+libgranulemodule_la_SOURCES=  $(granulemodule_la_SOURCES)
+
+MAKEFLAGS= @MAKE_FLAGS@
+
+AM_CPPFLAGS= @NEST_CPPFLAGS@ \
+	     @SUNDIALS_CPPFLAGS@ \
+             @INCLTDL@      
+
+AM_LDFLAGS = @SUNDIALS_LDFLAGS@
+
+.PHONY: install-slidoc
+
+nobase_pkgdata_DATA=\
+	granulemodule.sli
+
+install-slidoc:
+	NESTRCFILENAME=/dev/null $(DESTDIR)$(NEST_PREFIX)/bin/sli --userargs="@HELPDIRS@" $(NEST_PREFIX)/share/nest/sli/install-help.sli
+
+install-data-hook: install-exec install-slidoc
+
+EXTRA_DIST= sli
+
+EOF
+)
+
+    ("nestmodule.cpp" ()  
+#<<EOF
+/*
+ *  granulemodule.cpp
+ *  This file is part of NEST.
+ *
+ *  Copyright (C) 2008 by
+ *  The NEST Initiative
+ *
+ *  See the file AUTHORS for details.
+ *
+ *  Permission is granted to compile and modify
+ *  this file for non-commercial use.
+ *  See the file LICENSE for details.
+ *
+ */
+
+// include necessary NEST headers
+//#include "config.h"
+#include "network.h"
+#include "model.h"
+#include "dynamicloader.h"
+#include "genericmodel.h"
+#include "generic_connector.h"
+#include "booldatum.h"
+#include "integerdatum.h"
+#include "tokenarray.h"
+#include "exceptions.h"
+#include "sliexceptions.h"
+#include "nestmodule.h"
+
+// include headers with your own stuff
+#include "granulemodule.h"
+#include "Granule.h"
+
+// -- Interface to dynamic module loader ---------------------------------------
+
+/*
+ * The dynamic module loader must be able to find your module. 
+ * You make the module known to the loader by defining an instance of your 
+ * module class in global scope. This instance must have the name
+ *
+ * <modulename>_LTX_mod
+ *
+ * The dynamicloader can then load modulename and search for symbol "mod" in it.
+ */
+ 
+granulenest::GranuleModule granulemodule_LTX_mod;
+
+// -- DynModule functions ------------------------------------------------------
+
+granulenest::GranuleModule::GranuleModule()
+  { 
+#ifdef LINKED_MODULE
+     // register this module at the dynamic loader
+     // this is needed to allow for linking in this module at compile time
+     // all registered modules will be initialized by the main app's dynamic loader
+     nest::DynamicLoaderModule::registerLinkedModule(this);
+#endif     
+   }
+
+granulenest::GranuleModule::~GranuleModule()
+   {
+   }
+
+   const std::string granulenest::GranuleModule::name(void) const
+   {
+     return std::string("Granule Module"); // Return name of the module
+   }
+
+   const std::string granulenest::GranuleModule::commandstring(void) const
+   {
+     /* 1. Tell interpreter that we provide the C++ part of GranuleModule with the
+           current revision number. 
+        2. Instruct the interpreter to check that granulemodule-init.sli exists, 
+           provides at least version 1.0 of the SLI interface to GranuleModule, and
+           to load it.
+      */
+     return std::string("");
+   }
+
+   /* BeginDocumentation
+      Name: StepPatternConnect - Connect sources and targets with a stepping pattern
+      
+      Synopsis:
+      [sources] source_step [targets] target_step synmod StepPatternConnect -> n_connections
+      
+      Parameters:
+      [sources]     - Array containing GIDs of potential source neurons
+      source_step   - Make connection from every source_step'th neuron
+      [targets]     - Array containing GIDs of potential target neurons
+      target_step   - Make connection to every target_step'th neuron
+      synmod        - The synapse model to use (literal, must be key in synapsedict)
+      n_connections - Number of connections made
+      
+      Description:
+      This function subsamples the source and target arrays given with steps
+      source_step and target_step, beginning with the first element in each array,
+      and connects the selected nodes.
+      
+      Example:
+      /first_src 0 /network_size get def
+      /last_src /iaf_neuron 20 Create def  % nodes  1 .. 20
+      /src [first_src last_src] Range def
+      /last_tgt /iaf_neuron 10 Create def  % nodes 21 .. 30
+      /tgt [last_src 1 add last_tgt] Range def
+      
+      src 6 tgt 4 /drop_odd_spike StepPatternConnect 
+  
+      This connects nodes [1, 7, 13, 19] as sources to nodes [21, 25,
+      29] as targets using synapses of type drop_odd_spike, and
+      returning 12 as the number of connections.  The following
+      command will print the connections (you must paste the SLI
+      command as one long line):
+
+      src { /s Set << /source s /synapse_type /static_synapse >> FindConnections { GetStatus /target get } Map dup length 0 gt { cout s <- ( -> ) <- exch <-- endl } if ; } forall
+      1 -> [21 25 29]
+      7 -> [21 25 29]
+      13 -> [21 25 29]
+      19 -> [21 25 29]
+      
+      Remark:
+      This function is only provided as an example for how to write your own 
+      interface function. 
+      
+      Author:
+      Hans Ekkehard Plesser
+      
+      SeeAlso:
+      Connect, ConvergentConnect, DivergentConnect
+   */
+   void granulenest::GranuleModule::StepPatternConnect_Vi_i_Vi_i_lFunction::execute(SLIInterpreter *i) const
+   {
+     // Check if we have (at least) five arguments on the stack.
+     i->assert_stack_load(5);
+
+     // Retrieve source, source step, target, target step from the stack
+     const TokenArray sources = getValue<TokenArray> (i->OStack.pick(4)); // bottom
+     const long src_step      = getValue<long>       (i->OStack.pick(3));
+     const TokenArray targets = getValue<TokenArray> (i->OStack.pick(2));
+     const long tgt_step      = getValue<long>       (i->OStack.pick(1));  
+     const Name synmodel_name = getValue<std::string>(i->OStack.pick(0)); // top
+     
+     // Obtain synapse model index
+     const Token synmodel 
+       = nest::NestModule::get_network().get_synapsedict().lookup(synmodel_name);
+     if ( synmodel.empty() )
+       throw nest::UnknownSynapseType(synmodel_name.toString());
+     const nest::index synmodel_id = static_cast<nest::index>(synmodel);
+
+     // Build a list of targets with the given step
+     TokenArray selected_targets;
+     for ( size_t t = 0 ; t < targets.size() ; t += tgt_step )
+       selected_targets.push_back(targets[t]);
+     
+     // Now connect all appropriate sources to this list of targets
+     size_t Nconn = 0;  // counts connections
+     for ( size_t s = 0 ; s < sources.size() ; s += src_step )
+     {
+       // We must first obtain the GID of the source as integer
+       const nest::long_t sgid = getValue<nest::long_t>(sources[s]);
+
+       // nest::network::divergent_connect() requires weight and delay arrays. We want to use
+       // default values from the synapse model, so we pass empty arrays.
+       nest::NestModule::get_network().divergent_connect(sgid, selected_targets, 
+							 TokenArray(), TokenArray(),
+							 synmodel_id);
+       Nconn += selected_targets.size();
+     }
+
+     // We get here only if none of the operations above throws and exception.
+     // Now we can safely remove the arguments from the stack and push Nconn
+     // as our result. 
+     i->OStack.pop(5);
+     i->OStack.push(Nconn);
+     
+     // Finally, we pop the call to this functions from the execution stack.
+     i->EStack.pop();
+   }
+
+  //-------------------------------------------------------------------------------------
+
+  void granulenest::GranuleModule::init(SLIInterpreter *i, nest::Network*)
+  {
+    /* Register a neuron or device model.
+       Give node type as template argument and the name as second argument.
+       The first argument is always a reference to the network.
+       Return value is a handle for later unregistration.
+    */
+       nest::register_model<nest::Granule>(nest::NestModule::get_network(), 
+					    "Granule");
+
+
+    /* Register a SLI function.
+       The first argument is the function name for SLI, the second a pointer to
+       the function object. If you do not want to overload the function in SLI,
+       you do not need to give the mangled name. If you give a mangled name, you
+       should define a type trie in the granulemodule-init.sli file.
+    */
+    i->createcommand("StepPatternConnect_Vi_i_Vi_i_l", 
+                     &stepPatternConnect_Vi_i_Vi_i_lFunction);
+
+  }  // GranuleModule::init()
+
+EOF
+)
+
+    ("nestmodule.h" ()  
+#<<EOF
+/*
+ *  granulemodule.h
+ *
+ *  This file is part of NEST.
+ *
+ *  Copyright (C) 2008 by
+ *  The NEST Initiative
+ *
+ *  See the file AUTHORS for details.
+ *
+ *  Permission is granted to compile and modify
+ *  this file for non-commercial use.
+ *  See the file LICENSE for details.
+ *
+ */
+
+#ifndef GRANULEMODULE_H
+#define GranuleMODULE_H
+
+#include "dynmodule.h"
+#include "slifunction.h"
+
+namespace nest
+{
+  class Network;
+}
+
+// Put your stuff into your own namespace.
+namespace granulenest {
+  
+/**
+ * Class defining your model.
+ * @note For each model, you must define one such class, with a unique name.
+ */
+class GranuleModule : public DynModule
+{
+public:
+
+  // Interface functions ------------------------------------------
+  
+  /**
+   * @note The constructor registers the module with the dynamic loader. 
+   *       Initialization proper is performed by the init() method.
+   */
+  GranuleModule();
+  
+  /**
+   * @note The destructor does not do much in modules. Proper "downrigging"
+   *       is the responsibility of the unregister() method.
+   */
+  ~GranuleModule();
+
+  /**
+   * Initialize module by registering models with the network.
+   * @param SLIInterpreter* SLI interpreter
+   * @param nest::Network*  Network with which to register models
+   * @note  Parameter Network is needed for historical compatibility
+   *        only.
+   */
+  void init(SLIInterpreter*, nest::Network*);
+
+  /**
+   * Return the name of your model.
+   */
+  const std::string name(void) const;
+  
+  /**
+   * Return the name of a sli file to execute when granulemodule is loaded.
+   * This mechanism can be used to define SLI commands associated with your
+   * module, in particular, set up type tries for functions you have defined.
+   */
+  const std::string commandstring(void) const;
+     
+public:
+  
+  // Classes implementing your functions -----------------------------
+  
+  /**
+   * Implement a function for a step-pattern-based connection.
+   * @note What this function does is described in the SLI documentation
+   *       in the cpp file.
+   * @note The mangled name indicates this function expects the following
+   *       arguments on the stack (bottom first): vector of int, int, 
+   *       vector of int, int. 
+   * @note You must define a member object in your module class
+   *       of the function class. execute() is later invoked on this
+   *       member.
+   */
+  class StepPatternConnect_Vi_i_Vi_i_lFunction: public SLIFunction
+     {
+     public:
+       void execute(SLIInterpreter *) const;
+     };
+
+     StepPatternConnect_Vi_i_Vi_i_lFunction stepPatternConnect_Vi_i_Vi_i_lFunction;
+  };
+
+} // namespace granulenest
+
+#endif
+
+EOF
+)
+
+    ("granulemodule.sli" ()  
+#<<EOF
+/* 
+ * Initialization file for GranuleModule.
+ * Run automatically when GranuleModule is loaded.
+ */
+
+M_DEBUG (granulemodule.sli) (Initializing SLI support for GranuleModule.) message
+
+/StepPatternConnect [ /arraytype /integertype /arraytype /integertype /literaltype ]
+{ 
+  StepPatternConnect_Vi_i_Vi_i_l
+} def
+
+EOF
+)
+
+    ("testrun.sli" ()  
+#<<EOF
+/dt 0.025 def
+
+ResetKernel
+0
+ << 
+   /resolution  dt 
+ >> SetStatus
+
+(granulemodule) Install
+/neuron /Granule Create def
+/stepinput /step_current_generator Create def
+/vlog /voltmeter Create def
+/vlog_parameters << /interval dt /to_file true /to_memory false >> def
+vlog vlog_parameters SetStatus
+
+/evlog /spike_detector Create def
+/evlog_parameters << /withtime true /precise_times true /to_file true >> def
+evlog evlog_parameters SetStatus
+
+stepinput neuron Connect
+vlog neuron Connect
+neuron evlog Connect
+
+/step_current_parameters << /amplitude_times [0.0 1000.0 2850.0] /amplitude_values [0.0 18.75 0.0 ] >> def
+stepinput step_current_parameters SetStatus
+
+3000.0 Simulate
+
+EOF
+)
+
+
+    ("netstim.sli" ()  
+#<<EOF
+
+(granulemodule) Install
+
+[ 1.0 20.0 50.0 100.0 200.0 ]
+
+{
+
+/i exch def
+
+(Granule_netstim_) i cvs (_Hz) join join /label exch def
+
+/dt 0.025 def
+
+/seeds 0 /total_num_virtual_procs get array 1 add def
+
+ResetKernel
+0
+ << 
+   /resolution  dt 
+   /rng_seeds seeds
+ >> SetStatus
+
+/neuron /Granule Create def
+/neuron_params << /V_m -65.0 >> def
+neuron neuron_params SetStatus
+
+/input1 /poisson_generator Create def
+/input2 /poisson_generator Create def
+/input3 /poisson_generator Create def
+/input4 /poisson_generator Create def
+/input5 /poisson_generator Create def
+
+/vlog /voltmeter Create def
+
+/poisson_parameters1 << /rate i Hz /start 1000.0 >> def
+input1 poisson_parameters1 SetStatus
+
+/poisson_parameters2 << /rate i Hz /start 1000.0 >> def
+input2 poisson_parameters2 SetStatus
+
+/poisson_parameters3 << /rate i Hz /start 1000.0 >> def
+input3 poisson_parameters3 SetStatus
+
+/poisson_parameters4 << /rate i Hz /start 1000.0 >> def
+input4 poisson_parameters4 SetStatus
+
+/poisson_parameters5 << /rate i Hz /start 1000.0 >> def
+input5 poisson_parameters5 SetStatus
+
+/vlog_parameters << /interval dt /label label /to_file true  /to_memory false >> def
+vlog vlog_parameters SetStatus
+
+/ampa_receptor neuron GetStatus /receptor_types get /AMPA get def
+
+/conn_parameters1 << /receptor_type ampa_receptor /weight 0.1 /delay 1.0 >> def
+input1 neuron conn_parameters1 Connect
+
+/conn_parameters2 << /receptor_type ampa_receptor /weight 0.1 /delay 12.0 >> def
+input2 neuron conn_parameters2 Connect
+
+/conn_parameters3 << /receptor_type ampa_receptor /weight 0.1 /delay 15.0 >> def
+input3 neuron conn_parameters3 Connect
+
+/conn_parameters4 << /receptor_type ampa_receptor /weight 0.1 /delay 17.0 >> def
+input4 neuron conn_parameters4 Connect
+
+/conn_parameters5 << /receptor_type ampa_receptor /weight 0.1 /delay 19.0 >> def
+input5 neuron conn_parameters5 Connect
+       
+vlog neuron Connect
+
+6000.0 Simulate
+
+i
+} 
+Map
+EOF
+)
+
+
+) ;; end template declarations
+      
+)

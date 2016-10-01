@@ -1,0 +1,10 @@
+
+create soma
+soma {
+    nseg = 1
+    L = 100
+    diam = 100
+    insert hodgkin_huxley_K
+    insert hodgkin_huxley_Na
+    insert hodgkin_huxley_Leak
+}

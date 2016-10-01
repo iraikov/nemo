@@ -1,0 +1,550 @@
+; -*- Hen -*-
+
+(define (dynld-name fn)		
+  (make-pathname #f fn ##sys#load-dynamic-extension))	
+
+(include "nemo-version.scm")
+
+(use make)
+
+(include "make-nemo-ersatz-lexer.scm")
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-ersatz-lexer
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-ersatz-lexer") ,(dynld-name "nemo-ersatz-lexer.import"))
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+
+(make (
+       ((dynld-name "nemo-fetch") ("nemo-fetch.scm")
+	(compile -O -d2 -S -s nemo-fetch.scm -j nemo-fetch))
+
+       ((dynld-name "nemo-fetch.import") ("nemo-fetch.import.scm")
+	(compile -O2 -s nemo-fetch.import.scm)) 
+       )
+  (list (dynld-name "nemo-fetch")
+	(dynld-name "nemo-fetch.import"))
+  )
+
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-fetch
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-fetch") ,(dynld-name "nemo-fetch.import")) 
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+
+(make (
+       ((dynld-name "nemo-units") ("nemo-units.scm")
+	(compile -O -d2 -S -s nemo-units.scm -j nemo-units))
+
+       ((dynld-name "nemo-units.import") ("nemo-units.import.scm")
+	(compile -O2 -s nemo-units.import.scm)) 
+       )
+  (list (dynld-name "nemo-units")
+	(dynld-name "nemo-units.import"))
+  )
+
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-units
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-units") ,(dynld-name "nemo-units.import")) 
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+
+(make (
+       ("expr.grm.scm" ("expr.grm")
+	(run (csi -s expr.grm)))
+
+       ((dynld-name "nemo-core") ("nemo-core.scm" "expr.grm.scm")
+	(compile -O -d2 -S -s nemo-core.scm -j nemo-core))
+
+       ((dynld-name "nemo-core.import") ("nemo-core.import.scm")
+	(compile -O2 -s nemo-core.import.scm))
+       )
+  (list (dynld-name "nemo-core")
+	(dynld-name "nemo-core.import"))
+  )
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-core
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-core") ,(dynld-name "nemo-core.import"))
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+
+(make (
+       ((dynld-name "nemo-utils") ("nemo-utils.scm")
+	(compile -O -d2 -S -s nemo-utils.scm -j nemo-utils))
+
+       ((dynld-name "nemo-utils.import") ("nemo-utils.import.scm")
+	(compile -O2 -s nemo-utils.import.scm)) 
+       )
+  (list (dynld-name "nemo-utils")
+	(dynld-name "nemo-utils.import"))
+  )
+
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-utils
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-utils") ,(dynld-name "nemo-utils.import")) 
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+
+(make (
+       ((dynld-name "nemo-synapse") ("nemo-synapse.scm")
+	(compile -O -d2 -S -s nemo-synapse.scm -j nemo-synapse))
+
+       ((dynld-name "nemo-synapse.import") ("nemo-synapse.import.scm")
+	(compile -O2 -s nemo-synapse.import.scm))
+       )
+  (list (dynld-name "nemo-synapse")
+	(dynld-name "nemo-synapse.import"))
+  )
+
+
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-synapse
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-synapse") ,(dynld-name "nemo-synapse.import") )
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+
+
+(make (
+       ((dynld-name "nemo-gate-complex") ("nemo-gate-complex.scm")
+	(compile -O -d2 -S -s nemo-gate-complex.scm -j nemo-gate-complex)) 
+
+       ((dynld-name "nemo-gate-complex.import") ("nemo-gate-complex.import.scm")
+	(compile -O2 -s nemo-gate-complex.import.scm)) 
+       )
+  (list (dynld-name "nemo-gate-complex")
+	(dynld-name "nemo-gate-complex.import"))
+  )
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-gate-complex
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-gate-complex") ,(dynld-name "nemo-gate-complex.import") )
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+
+(make (
+       ((dynld-name "nemo-currents") ("nemo-currents.scm")
+	(compile -O -d2 -S -s nemo-currents.scm -j nemo-currents)) 
+
+       ((dynld-name "nemo-currents.import") ("nemo-currents.import.scm")
+	(compile -O2 -s nemo-currents.import.scm)) 
+       )
+  (list (dynld-name "nemo-currents")
+	(dynld-name "nemo-currents.import"))
+  )
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-currents
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-currents") ,(dynld-name "nemo-currents.import") )
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+
+(make (
+       ((dynld-name "nemo-constraints") ("nemo-constraints.scm")
+	(compile -O -d2 -S -s nemo-constraints.scm -j nemo-constraints)) 
+
+       ((dynld-name "nemo-constraints.import") ("nemo-constraints.import.scm")
+	(compile -O2 -s nemo-constraints.import.scm)) 
+       )
+  (list (dynld-name "nemo-constraints")
+	(dynld-name "nemo-constraints.import"))
+  )
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-constraints
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-constraints") ,(dynld-name "nemo-constraints.import") )
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+
+(make (
+       ((dynld-name "nemo-defaults") ("nemo-defaults.scm")
+	(compile -O -d2 -S -s nemo-defaults.scm -j nemo-defaults)) 
+
+       ((dynld-name "nemo-defaults.import") ("nemo-defaults.import.scm")
+	(compile -O2 -s nemo-defaults.import.scm)) 
+       )
+  (list (dynld-name "nemo-defaults")
+	(dynld-name "nemo-defaults.import"))
+  )
+
+
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-defaults
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-defaults") ,(dynld-name "nemo-defaults.import") )
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+
+(make (
+       ((dynld-name "nemo-geometry") ("nemo-geometry.scm")
+	(compile -O -d2 -S -s nemo-geometry.scm -j nemo-geometry)) 
+
+       ((dynld-name "nemo-geometry.import") ("nemo-geometry.import.scm")
+	(compile -O2 -s nemo-geometry.import.scm)) 
+       )
+  (list (dynld-name "nemo-geometry")
+	(dynld-name "nemo-geometry.import"))
+  )
+
+
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-geometry
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-geometry") ,(dynld-name "nemo-geometry.import") )
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+
+(make (
+       ((dynld-name "nemo-macros") ("nemo-macros.scm")
+	(compile -O -d2 -S -s nemo-macros.scm -j nemo-macros)) 
+
+       ((dynld-name "nemo-macros.import") ("nemo-macros.import.scm")
+	(compile -O2 -s nemo-macros.import.scm)) 
+       )
+  (list (dynld-name "nemo-macros")
+	(dynld-name "nemo-macros.import"))
+  )
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-macros
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-macros") ,(dynld-name "nemo-macros.import") )
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+
+(make (
+       ((dynld-name "nemo-nmodl") ("nemo-nmodl.scm")
+	(compile -O -d2 -S -s nemo-nmodl.scm -j nemo-nmodl)) 
+
+       ((dynld-name "nemo-nmodl.import") ("nemo-nmodl.import.scm")
+	(compile -O2 -s nemo-nmodl.import.scm)) 
+       )
+  (list (dynld-name "nemo-nmodl")
+	(dynld-name "nemo-nmodl.import"))
+  )
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-nmodl
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-nmodl")  ,(dynld-name "nemo-nmodl.import")  )
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+(if (file-exists? "nemo-matlab.scm")
+    (begin
+      (make (
+	     ((dynld-name "nemo-matlab") ("nemo-matlab.scm")
+	      (compile -O -d2 -S -s nemo-matlab.scm -j nemo-matlab)) 
+	     
+	     ((dynld-name "nemo-matlab.import") ("nemo-matlab.import.scm")
+	      (compile -O2 -s nemo-matlab.import.scm)) 
+	     )
+	(list (dynld-name "nemo-matlab")
+	      (dynld-name "nemo-matlab.import"))
+	)))
+
+
+(if (file-exists? "nemo-matlab.scm")
+    (install-extension
+     
+     ;; Name of your extension:
+     'nemo-matlab
+     
+     ;; Files to install for your extension:
+     `(,(dynld-name "nemo-matlab")  ,(dynld-name "nemo-matlab.import")  )
+     
+     ;; Assoc list with properties for your extension:
+     `((version ,nemo-version))))
+
+
+(if (file-exists? "nemo-nest.scm")
+    (begin
+      (make (
+	     ((dynld-name "nemo-nest") ("nemo-nest.scm")
+	      (compile -O -d2 -S -s nemo-nest.scm -j nemo-nest)) 
+	     
+	     ((dynld-name "nemo-nest.import") ("nemo-nest.import.scm")
+	      (compile -O2 -s nemo-nest.import.scm)) 
+	     )
+	(list (dynld-name "nemo-nest")
+	      (dynld-name "nemo-nest.import"))
+	)))
+
+
+(if (file-exists? "nemo-nest.scm")
+    (install-extension
+     
+     ;; Name of your extension:
+     'nemo-nest
+     
+     ;; Files to install for your extension:
+     `(,(dynld-name "nemo-nest")  ,(dynld-name "nemo-nest.import")  )
+     
+     ;; Assoc list with properties for your extension:
+     `((version ,nemo-version))))
+
+
+(if (file-exists? "nemo-pyparams.scm")
+    (begin
+      (make (
+	     ((dynld-name "nemo-pyparams") ("nemo-pyparams.scm")
+	      (compile -O -d2 -S -s nemo-pyparams.scm -j nemo-pyparams)) 
+	     
+	     ((dynld-name "nemo-pyparams.import") ("nemo-pyparams.import.scm")
+	      (compile -O2 -s nemo-pyparams.import.scm)) 
+	     )
+	(list (dynld-name "nemo-pyparams")
+	      (dynld-name "nemo-pyparams.import"))
+	)))
+
+
+(if (file-exists? "nemo-pyparams.scm")
+    (install-extension
+     
+     ;; Name of your extension:
+     'nemo-pyparams
+     
+     ;; Files to install for your extension:
+     `(,(dynld-name "nemo-pyparams")  ,(dynld-name "nemo-pyparams.import")  )
+     
+     ;; Assoc list with properties for your extension:
+     `((version ,nemo-version))))
+
+
+(make (
+       ((dynld-name "nemo-hh") ("extensions/nemo-hh.scm")
+	(compile -O -d2 -S -s extensions/nemo-hh.scm -j nemo-hh 
+		 -o ,(dynld-name "nemo-hh")) )
+
+       ((dynld-name "nemo-hh.import") ("nemo-hh.import.scm")
+	(compile -O2 -s nemo-hh.import.scm)) 
+       )
+  (list (dynld-name "nemo-hh")
+	(dynld-name "nemo-hh.import"))
+  )
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-hh
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-hh")  ,(dynld-name "nemo-hh.import"))
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+(make (
+       ((dynld-name "nemo-vclamp") ("extensions/nemo-vclamp.scm")
+	(compile -O -d2 -S -s extensions/nemo-vclamp.scm -j nemo-vclamp
+		 -o ,(dynld-name "nemo-vclamp")) )
+
+       ((dynld-name "nemo-vclamp.import") ("nemo-vclamp.import.scm")
+	(compile -O2 -s nemo-vclamp.import.scm)) 
+       )
+  (list (dynld-name "nemo-vclamp")
+	(dynld-name "nemo-vclamp.import"))
+  )
+
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-vclamp
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-vclamp") ,(dynld-name "nemo-vclamp.import")) 
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+
+(make (
+       ((dynld-name "nemo-iclamp") ("extensions/nemo-iclamp.scm")
+	(compile -O -d2 -S -s extensions/nemo-iclamp.scm -j nemo-iclamp
+		 -o ,(dynld-name "nemo-iclamp")) )
+
+       ((dynld-name "nemo-iclamp.import") ("nemo-iclamp.import.scm")
+	(compile -O2 -s nemo-iclamp.import.scm)) 
+       )
+  (list (dynld-name "nemo-iclamp")
+	(dynld-name "nemo-iclamp.import"))
+  )
+
+
+(install-extension
+
+  ; Name of your extension:
+  'nemo-iclamp
+
+  ; Files to install for your extension:
+  `(,(dynld-name "nemo-iclamp") ,(dynld-name "nemo-iclamp.import")) 
+
+  ; Assoc list with properties for your extension:
+  `((version ,nemo-version)))
+
+
+
+(if (deployment-mode)
+
+    (compile -deploy -uses files -O -d2 nemo.scm 
+             -o ,(installation-prefix))
+
+    (begin
+      (make (
+             ("nemo" ("nemo.scm")
+              (compile -O -d2 nemo.scm)) 
+             )
+        "nemo")
+      
+      (install-program 
+       'nemo 
+       
+       `("nemo" )
+       
+       `((version ,nemo-version)
+         ))
+      ))
+
+;; From setup-header.scm by Kon Lovett
+
+(define (installation-chicken-home)
+  (if (not (installation-prefix)) (chicken-home)
+    (make-pathname `(,(installation-prefix) "share") "chicken") ) )
+
+;;; Constants & Procedures
+
+(define SHARED-DIR (installation-chicken-home))
+(define NEMO-DIR (make-pathname SHARED-DIR "nemo"))
+
+(if (not (file-exists? NEMO-DIR))
+    (create-directory/parents NEMO-DIR))
+
+;; File Copy Operations
+
+(define (copy-file-to-nemo-dir fn)
+  (let ([fn (->string fn)])
+    (copy-file fn (make-pathname NEMO-DIR fn)) ) )
+
+(copy-file-to-nemo-dir "templates/NMODL.tmpl")
+(copy-file-to-nemo-dir "templates/NMODL-asgns.tmpl")
+(copy-file-to-nemo-dir "templates/NMODL-kinetic.tmpl")
+(copy-file-to-nemo-dir "templates/NMODL-assigned.tmpl")
+(copy-file-to-nemo-dir "templates/NMODL-neuron.tmpl")
+(copy-file-to-nemo-dir "templates/NMODL-breakpoint.tmpl")
+(copy-file-to-nemo-dir "templates/NMODL-parameter.tmpl")
+(copy-file-to-nemo-dir "templates/NMODL-derivative.tmpl")
+(copy-file-to-nemo-dir "templates/NMODL-pools.tmpl")
+(copy-file-to-nemo-dir "templates/NMODL-events.tmpl")
+(copy-file-to-nemo-dir "templates/NMODL-reactions.tmpl")
+(copy-file-to-nemo-dir "templates/NMODL-function.tmpl")
+(copy-file-to-nemo-dir "templates/NMODL-state.tmpl")
+(copy-file-to-nemo-dir "templates/NMODL-initial.tmpl")
+
+(copy-file-to-nemo-dir "templates/NEST.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-header.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-prelude.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-init.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-accessors_modifiers.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-jacobian.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-buffers.tmpl")           
+(copy-file-to-nemo-dir "templates/NEST-kinsol-prelude.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-cvode-event.tmpl")     
+(copy-file-to-nemo-dir "templates/NEST-nodes.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-cvode-prelude.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-parameters.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-dynamics.tmpl")         
+(copy-file-to-nemo-dir "templates/NEST-emit-spike.tmpl")           
+(copy-file-to-nemo-dir "templates/NEST-recordables.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-event-handle.tmpl")        
+(copy-file-to-nemo-dir "templates/NEST-residual.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-fsolve-prelude.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-solver-events.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-function-header.tmpl")      
+(copy-file-to-nemo-dir "templates/NEST-steadystate.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-function.tmpl")        
+(copy-file-to-nemo-dir "templates/NEST-sundials-prelude.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-synaptic-transients.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-ida-event.tmpl")
+(copy-file-to-nemo-dir "templates/NEST-ida-prelude.tmpl")          
+(copy-file-to-nemo-dir "templates/NEST-update.tmpl")
+

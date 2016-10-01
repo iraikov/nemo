@@ -1,0 +1,60 @@
+load_file("nrngui.hoc")
+
+xopen("hh_template.hoc")
+
+mainlength = 500
+
+objref stim
+stim = new IClamp(0.5)
+stim.amp = 10
+stim.dur = mainlength
+
+psection()
+printf ("area = %g\n", area(0.5))
+
+cvode_active(1)
+//**********************************************************************
+proc simulate() { local preDT, mainDT, logsize  localobj logfile, tlog, Vlog, ilog
+    
+    dt = 0.025
+    tstop = mainlength
+    run()
+    if ( stoprun == 1) return
+    
+    logfile=$o1
+    tlog=$o2
+    Vlog=$o3
+    ilog=$o4
+    
+    logsize = tlog.size()
+    
+    for i=0,tlog.size()-1 {
+	logfile.printf("%g %g %g\n", tlog.x[i], Vlog.x[i], ilog.x[i])
+    }
+
+}
+
+
+vec_sizes = (mainlength)/dt + 1
+
+objref ilog
+ilog = new Vector(vec_sizes)
+ilog.record (&soma.i_cap(0.5))
+
+objref  Vlog
+Vlog = new Vector(vec_sizes)
+Vlog.record (&soma.v(0.5))
+
+objref tlog
+tlog = new Vector(vec_sizes,0)
+tlog.record (&t)
+
+objref logfile
+logfile = new File()
+logfile.wopen ( "hhneuron.dat" )
+
+simulate(logfile,tlog,Vlog,ilog)
+logfile.close()
+
+quit()
+

@@ -1,0 +1,773 @@
+
+;; Reference: Cerebellar cortex oscillatory robustness from Golgi cell gap jncs (Simoes de Souza and De Schutter 2011)
+
+(nemo-model Granule
+
+  (
+   (input v celsius)
+
+   (const F = 96485.3)
+   (const R = 8.31342)
+
+   (component (type defaults) 
+      (const V_t = -35)
+      (const Ra = 0.01)
+      (const celsius = 30)
+      (output celsius V_t)
+      )
+
+   (component (type membrane-capacitance)
+	 (const C_m  = (1))
+	 (output C_m  ))
+
+
+   (component (type geometry) (name soma)
+         (const L = 11.8)
+         (const diam = 11.8)
+	 (output L diam ))
+
+
+   (functor (type post-synaptic-conductance) (name AMPAfun)
+
+        ( tauA tauB e) =
+
+        (input (w from event (unit uS)))
+
+        (const tau1 = (if ((tauA / tauB) > .9999) then (0.9999 * tauB) else tauA))
+        (const tau2 = tauB)
+
+	(const tp = ((tau1 * tau2) / (tau2 - tau1) * ln (tau2 / tau1)))
+	(const scale_factor  = (1 / (neg (exp(neg (tp) / tau1)) + exp (neg (tp) / tau2))))
+
+	(transient (A) = (neg (A) / tau1) (onevent (A + (w * scale_factor))) (initial 0))
+	(transient (B) = (neg (B) / tau2) (onevent (B + (w * scale_factor))) (initial 0))
+
+        (g =  (B - A))
+
+        (output g e scale_factor)
+
+      )
+
+
+   (functor (type post-synaptic-conductance) (name GABAfun) 
+
+        ( tauA tauB e) =
+
+        (input (w from event (unit uS)))
+
+        (const tau1 = (if ((tauA / tauB) > .9999) then (0.9999 * tauB) else tauA))
+        (const tau2 = tauB)
+
+	(const tp = ((tau1 * tau2) / (tau2 - tau1) * ln (tau2 / tau1)))
+	(const scale_factor  = (1 / (neg (exp(neg (tp) / tau1)) + exp (neg (tp) / tau2))))
+
+	(transient (A) = (neg (A) / tau1) (onevent (A + (w * scale_factor))) (initial 0))
+	(transient (B) = (neg (B) / tau2) (onevent (B + (w * scale_factor))) (initial 0))
+
+        (g =  (B - A))
+
+        (output g e scale_factor)
+
+      )
+
+
+   (functor (type post-synaptic-conductance) (name NMDAfun)
+
+        ( tauA tauB e) =
+
+        (input (w from event (unit uS)))
+
+        (const tau1 = (if ((tauA / tauB) > .9999) then (0.9999 * tauB) else tauA))
+        (const tau2 = tauB)
+
+	(const tp = ((tau1 * tau2) / (tau2 - tau1) * ln (tau2 / tau1)))
+	(const scale_factor  = (1 / (neg (exp(neg (tp) / tau1)) + exp (neg (tp) / tau2))))
+
+	(transient (A) = (neg (A) / tau1) (onevent (A + (w * scale_factor))) (initial 0))
+	(transient (B) = (neg (B) / tau2) (onevent (B + (w * scale_factor))) (initial 0))
+
+        (g =  (B - A))
+
+        (output g e scale_factor)
+
+      )
+
+
+   (functor (type decaying-pool) (name cafun)
+
+      ( d cao cai0 beta) =
+
+      (input
+       (cai from ion-pools)
+       (ica from ion-currents))
+
+      (d (ca) =  ((neg (ica) / (2 * F * d)) * 1e4 -
+		  (beta * ((if (ca < cai0) then cai0 else ca) - cai0)))
+	 (initial cai0))
+      
+      (output ca cao)
+      )
+
+   
+   (functor (type ionic-current) (name CaHVAfun )
+
+      (
+       Aalpha_s Kalpha_s V0alpha_s
+       Abeta_s Kbeta_s V0beta_s
+       Aalpha_u Kalpha_u V0alpha_u
+       Abeta_u Kbeta_u V0beta_u
+       g
+       ) =
+	      
+      (input 
+       (cai from ion-pools)
+       (cao from ion-pools))
+	      
+      (component (type gate)
+
+		 ;; rate constants
+		 
+		 (Q10 = (pow (3 ((celsius - 20) / 10))))
+		 
+		 ;; rate functions
+		 
+		 (defun alpha_s (v Q10)
+		   (Q10 * Aalpha_s * exp((v - V0alpha_s) / Kalpha_s)))
+		 
+		 (defun beta_s (v Q10)
+		   (Q10 * Abeta_s * exp((v - V0beta_s) / Kbeta_s)))
+		 
+		 (defun alpha_u (v Q10)
+		   (Q10 * Aalpha_u * exp((v - V0alpha_u) / Kalpha_u)))
+		 
+		 (defun beta_u (v Q10) 
+		   (Q10 * Abeta_u * exp((v - V0beta_u) / Kbeta_u)))
+
+		 (s_inf = ((alpha_s (v Q10))/(alpha_s (v Q10) + beta_s (v Q10))))
+		 (tau_s = (1 / (alpha_s (v Q10) + beta_s (v Q10)) ))
+
+		 (u_inf = ((alpha_u (v Q10))/(alpha_u (v Q10) + beta_u (v Q10)) ))
+		 (tau_u = (1 / (alpha_u (v Q10) + beta_u (v Q10)) ))
+
+		 (hh-ionic-gate 
+		  (CaHVA  ;; ion name: exported variables will be of the form {ion}_{id}
+		   (initial-m  s_inf)
+		   (initial-h  u_inf)
+		   (m-power    2)
+		   (h-power    1)
+		   (m-inf      s_inf)
+		   (m-tau      tau_s)
+		   (h-inf      u_inf)
+		   (h-tau      tau_u)
+		   ))
+		 )
+      
+      (component (type pore)
+		 (const  gbar  = g)
+		 (output gbar ))
+      
+      (component (type permeating-ion) (name ca)
+		 (e = ((1e3) * (R * (celsius + 273.15)) / (2 * F) * ln (cao / cai)))
+		 (output e)
+		 )
+      
+      ) ;; end CaHVA current
+
+
+
+   (functor (type ionic-current) (name KAfun ) 
+
+            (
+             Aalpha_a Kalpha_a
+             V0alpha_a Abeta_a Kbeta_a V0beta_a
+             Aalpha_b Kalpha_b V0alpha_b Abeta_b Kbeta_b V0beta_b
+             V0_ainf K_ainf V0_binf K_binf
+             g e
+             ) =
+
+               (defun sigm (x y) (1 / (exp (x / y) + 1)))
+	      
+               (component (type gate)
+
+			 ;; rate constants
+
+			 (Q10 = (pow (3 ((celsius - 25.5) / 10))))
+
+			 
+			 ;; rate functions
+
+			 (defun alpha_a (v Q10)
+			   (Q10 * Aalpha_a * sigm((v - V0alpha_a) Kalpha_a)))
+
+			 (defun beta_a (v Q10)
+			   (Q10 * (Abeta_a / exp((v - V0beta_a) / Kbeta_a))))
+
+			 (defun alpha_b (v Q10)
+			   (Q10 * Aalpha_b * sigm((v - V0alpha_b) Kalpha_b)))
+
+			 (defun beta_b (v Q10)
+			   (Q10 * Abeta_b * sigm((v - V0beta_b) Kbeta_b)))
+
+			 (a_inf = (1 / (1 + exp ((v - V0_ainf) / K_ainf)))) 
+			 (tau_a = (1 / (alpha_a (v Q10) + beta_a (v Q10)) ))
+			 (b_inf = (1 / (1 + exp ((v - V0_binf) / K_binf))))
+			 (tau_b = (1 / (alpha_b (v Q10) + beta_b (v Q10)) ))
+
+			 (hh-ionic-gate 
+			  (KA  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  (1 / (1 + exp ((v - V0_ainf) / K_ainf))) )
+			   (initial-h  (1 / (1 + exp ((v - V0_binf) / K_binf))) )
+			   (m-power    3)
+			   (h-power    1)
+			   (m-inf      a_inf)
+			   (m-tau      tau_a)
+			   (h-inf      b_inf)
+			   (h-tau      tau_b)
+			   ))
+
+			 )
+
+	      	      
+	      (component (type pore)
+			 (const  gbar  = g)
+			 (output gbar ))
+
+	      
+	      (component (type permeating-ion) (name k)
+			 (const erev = e)
+			 (output erev ))
+	      
+	      ) ;; end KA current
+	      
+
+   (functor (type ionic-current) (name KCafun )
+
+            ( 
+             Aalpha_c Balpha_c Kalpha_c Abeta_c Bbeta_c Kbeta_c
+             g e
+             ) =
+
+      (input
+       (cai from ion-pools))
+	      
+      (component (type gate)
+		 
+		 ;; rate constants
+		 (Q10 = (pow (3 ((celsius - 30) / 10))))
+
+		 (cai1 = (if (cai < 1e-4) then 1e-4 else cai))
+
+		 ;; rate functions
+		 (defun alpha_c (v cai Q10)
+		   (Q10 * Aalpha_c / (1 + (Balpha_c * exp(v / Kalpha_c) / cai ))))
+		 
+		 (defun beta_c (v cai Q10)
+		   (Q10 * Abeta_c / (1 + (cai / (Bbeta_c * exp (v / Kbeta_c))) )))
+
+                 (c_inf = ((alpha_c (v cai Q10)) / (alpha_c (v cai Q10) + beta_c (v cai Q10)) ))
+                 (tau_c = (1 / (alpha_c (v cai Q10) + beta_c (v cai Q10)) ))
+
+		 (hh-ionic-gate 
+		  (KCa  ;; ion name: exported variables will be of the form {ion}_{id}
+		   (initial-m  c_inf)
+		   (m-power    1)
+		   (h-power    0)
+                   (m-inf      c_inf) 
+                   (m-tau      tau_c)
+		   ))
+		 
+		 )
+      
+      (component (type pore)
+		 (const  gbar  = g)
+		 (output gbar ))
+      
+      
+      (component (type permeating-ion) (name k)
+		 (const erev = e)
+		 (output erev ))
+      
+      (component (type modulating-ion) (name ca)
+		 )
+	      
+      ) ;; end KCa current
+
+
+
+
+   (functor (type ionic-current) (name Kirfun )
+
+              (
+               Aalpha_d Kalpha_d V0alpha_d Abeta_d Kbeta_d V0beta_d
+               g e
+               ) =
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+			 (Q10 = (pow (3 ((celsius - 20) / 10))))
+
+   
+			 ;; rate functions
+			 (defun alpha_d (v Q10)
+			   (Q10 * Aalpha_d * exp((v - V0alpha_d) / Kalpha_d)))
+			 
+			 (defun beta_d (v Q10)
+			   (Q10 * Abeta_d * exp((v - V0beta_d) / Kbeta_d) ))
+
+			 (d_inf = ((alpha_d (v Q10)) / (alpha_d (v Q10) + beta_d (v Q10)) ))
+			 (tau_d = (1 / (alpha_d (v Q10) + beta_d (v Q10)) ))
+
+			 (hh-ionic-gate 
+			  (Kir  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  d_inf)
+			   (m-power    1)
+			   (h-power    0)
+			   (m-inf      (d_inf))
+			   (m-tau      (tau_d))
+			   ))
+			 )
+
+	      (component (type pore)
+			 (const  gbar  = g)
+			 (output gbar ))
+	      
+	      (component (type permeating-ion) (name k)
+			 (const erev = e)
+			 (output erev ))
+	      
+	      ) ;; end Kir current
+
+
+   (functor (type ionic-current) (name KMfun )
+
+            (
+             ;; rate constants
+             Aalpha_n Kalpha_n V0alpha_n Abeta_n
+             Kbeta_n V0beta_n V0_ninf B_ninf
+             g e
+             ) =
+	      
+               (component (type gate)
+			 
+			 (Q10 = (pow (3 ((celsius - 22) / 10))))
+			 
+			 ;; rate equations
+			 (defun alpha_n (v Q10)
+			   (Q10 * Aalpha_n * exp((v - V0alpha_n) / Kalpha_n) ))
+
+			 (defun beta_n (v Q10)
+			   (Q10 * Abeta_n * exp((v - V0beta_n) / Kbeta_n) ))
+
+			 (hh-ionic-gate 
+			  (KM  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  (1 / (1 + exp((neg (v - V0_ninf)) / B_ninf))))
+			   (m-power    1)
+			   (h-power    0)
+			   (m-tau      (1 / (alpha_n(v Q10) + beta_n (v Q10)) ))
+			   (m-inf      (1 / (1 + exp((neg (v - V0_ninf)) / B_ninf))))
+			   ))
+			 )
+	      
+	      (component (type pore)
+			 (const  gbar  = g)
+			 (output gbar ))
+	      
+	      (component (type permeating-ion) (name k)
+			 (const erev = e)
+			 (output erev ))
+	      
+	      ) ;; end KM current
+
+
+   (functor (type ionic-current) (name KVfun )
+
+            (
+             Aalpha_n Kalpha_n V0alpha_n Abeta_n Kbeta_n V0beta_n g e
+            ) =
+
+	      (defun linoid (x y) 
+		(if ((abs (x / y)) < 1e-6) 
+		    then (y * (1 - ((x / y) / 2)))
+		    else (x / (exp (x / y) - 1))
+		    ))
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+			 (Q10 = (pow (3 ((celsius - 6.3) / 10))))
+
+			 ;; rate functions
+			 (defun alpha_n (v Q10) 
+			   (Q10 * Aalpha_n * linoid ((v - V0alpha_n) Kalpha_n)))
+
+			 (defun beta_n (v Q10) 
+			   (Q10 * Abeta_n * exp((v - V0beta_n) / Kbeta_n) ))
+
+
+                         (n_inf = ((alpha_n (v Q10)) / (alpha_n (v Q10) + beta_n (v Q10)) ))
+                         (tau_n = (1 / (alpha_n (v Q10) + beta_n (v Q10)) ))
+
+			 (hh-ionic-gate 
+			  (KV  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  n_inf)
+			   (m-power    4)
+			   (h-power    0)
+			   (m-inf     (n_inf))
+			   (m-tau     (tau_n))
+			   ))
+			 )
+
+
+	      (component (type pore)
+			 (const  gbar  = g)
+			 (output gbar ))
+	      
+	      (component (type permeating-ion) (name k)
+			 (const erev = e)
+			 (output erev ))
+	      
+	      ) ;; end KV current
+	      
+
+
+   (functor (type ionic-current) (name Nafun )
+
+            (
+             Aalfa Valfa Abeta Vbeta
+             Agamma Adelta Aepsilon Ateta Vteta
+             ACon ACoff AOon AOoff
+             n1 n2 n3 n4
+             g e
+             ) =
+	      
+	      (component (type gate)
+
+			 ;; rate constants
+			 (Q10 = (pow (3 ((celsius - 20) / 10))))
+	
+			 (gamma = (Q10 * Agamma))
+			 (delta = (Q10 * Adelta))
+			 (epsilon = (Q10 * Aepsilon))
+			 (Con = (Q10 * ACon))
+			 (Coff = (Q10 * ACoff))
+			 (Oon = (Q10 * AOon))
+			 (Ooff = (Q10 * AOoff))
+			 (a = (pow ((Oon / Con) (1.0 / 4.0))))
+			 (b = (pow ((Ooff / Coff) (1.0 / 4.0))))
+
+			 ;; rate functions
+			 (defun alfa (v Q10)	
+			   (Q10 * Aalfa * exp (v / Valfa)))
+
+			 (defun beta (v Q10)
+			   (Q10 * Abeta * exp (neg (v) / Vbeta)))
+
+			 (defun teta (v Q10)
+			   (Q10 * Ateta * exp (neg (v) / Vteta)))
+				
+
+			 (reaction
+			  (Na_z
+			   (transitions
+			    (<-> C1 C2 (n1 * alfa (v Q10)) (n4 * beta (v Q10)))
+			    (<-> C2 C3 (n2 * alfa (v Q10)) (n3 * beta (v Q10)))
+			    (<-> C3 C4 (n3 * alfa (v Q10)) (n2 * beta (v Q10)))
+			    (<-> C4 C5 (n4 * alfa (v Q10)) (n1 * beta (v Q10)))
+			    (<-> C5 O  gamma delta)
+			    (<-> O  B  epsilon (teta (v Q10)))
+
+			    (<-> I1 I2 (n1 * alfa (v Q10) * a) (n4 * beta (v Q10) * b))
+			    (<-> I2 I3 (n2 * alfa (v Q10) * a) (n3 * beta (v Q10) * b))
+			    (<-> I3 I4 (n3 * alfa (v Q10) * a) (n2 * beta (v Q10) * b))
+			    (<-> I4 I5 (n4 * alfa (v Q10) * a) (n1 * beta (v Q10) * b))
+			    (<-> I5 I6 gamma delta)
+
+			    (<-> C1 I1 Con Coff)
+			    (<-> C2 I2 (Con * a) (Coff * b))
+			    (<-> C3 I3 (Con * pow (a 2)) (Coff * pow (b 2)))
+			    (<-> C4 I4 (Con * pow (a 3)) (Coff * pow (b 3)))
+			    (<-> C5 I5 (Con * pow (a 4)) (Coff * pow (b 4)))
+
+			    (O <-> I6 Oon Ooff))
+			   
+			   (conserve ((1 = (C1 + C2 + C3 + C4 + C5 + O + B + I1 + I2 + I3 + I4 + I5 + I6))))
+		     
+			   (open O)   (power 1)))
+
+			 (output Na_z )  
+
+			 )
+	      
+	      (component (type pore)
+			 (const  gbar  = g)
+			 (output gbar ))
+
+	      
+	      (component (type permeating-ion) (name na)
+			 (const erev = e)
+			 (output erev ))
+	      
+	      ) ;; end Na current
+   
+
+   (functor (type ionic-current) (name Lkg1fun) 
+            
+            ( g e ) =
+	      
+	      (component (type pore)
+			 (const  gbar  = g)
+			 (output gbar))
+	      
+	      (component (type permeating-ion) (name non-specific)
+			 (const erev = e)
+			 (output erev ))
+	      
+	      ) ;; end leak current
+
+
+   (functor (type ionic-current) (name Lkg2fun)
+
+            (g e) =
+	      
+	      (component (type pore)
+			 (const  ggaba = g)
+			 (output ggaba))
+	      
+	      (component (type permeating-ion) (name non-specific)
+			 (const egaba = e)
+			 (output egaba ))
+	      
+	      ) ;; end leak current
+
+   
+
+   (component (name AMPA) = 
+            
+       AMPAfun (
+                (const tauA = 0.03) ;; rise time
+                (const tauB = 0.5) ;; decay time
+                (const  e = 0)
+                )
+       )
+
+
+   (component (name GABA) =
+
+        GABAfun (
+
+                 (const tauA = 0.31) ;; rise time
+                 (const tauB = 8.8) ;; decay time
+                 (const  e = -75)
+                 )
+        )
+
+   (component (name NMDA) =
+
+        NMDAfun (
+                 
+                 (const tauA = 1) ;; rise time
+                 (const tauB = 13.3) ;; decay time
+                 (const  e = 0)
+                 )
+        )
+
+
+   (component (name ca) =
+
+      cafun (
+
+             (const  d = .2)
+             (const cao     = 2.)
+             (const cai0    = 1e-4)
+             (const beta    = 1.5)
+            )
+      )
+   
+   (component  (name CaHVA ) =
+
+      CaHVAfun (
+		 
+		 (const Aalpha_s  = 0.04944)
+		 (const Kalpha_s  =  15.87301587302)
+		 (const V0alpha_s = -29.06)
+		 
+		 (const Abeta_s  = 0.08298)
+		 (const Kbeta_s  =  -25.641)
+		 (const V0beta_s = -18.66)
+		 
+		 (const Aalpha_u  = 0.0013)
+		 (const Kalpha_u  =  -18.183)
+		 (const V0alpha_u = -48)
+			 
+		 (const Abeta_u = 0.0013)
+		 (const Kbeta_u = 83.33)
+		 (const V0beta_u = -48)
+		 
+		 (const  g  = 0.00046)
+                 )
+
+      ) ;; end CaHVA current
+   
+   (component (name KA ) =
+
+              KAfun (
+
+			 (const Aalpha_a  = 0.8147)
+			 (const Kalpha_a  = -23.32708)
+			 (const V0alpha_a = -9.17203)
+			 (const Abeta_a   = 0.1655)
+			 (const Kbeta_a   = 19.47175)
+			 (const V0beta_a  = -18.27914)
+
+			 (const Aalpha_b  = 0.0368)
+			 (const Kalpha_b  = 12.8433)
+			 (const V0alpha_b = -111.33209)
+			 (const Abeta_b   = 0.0345)
+			 (const Kbeta_b   = -8.90123)
+			 (const V0beta_b  = -49.9537)
+
+			 (const V0_ainf = -38)
+			 (const  K_ainf = -17)
+
+			 (const V0_binf   = -78.8)
+			 (const K_binf    = 8.4)
+
+			 (const g  = 0.0032)
+			 (const e = -84.69)
+                         )
+
+	      ) ;; end KA current
+   
+
+   (component (name KCa ) =
+
+              KCafun (
+		 
+		 (const Aalpha_c = 2.5)
+		 (const Balpha_c = 1.5e-3)
+		 
+		 (const Kalpha_c =  -11.765)
+		 
+		 (const Abeta_c = 1.5)
+		 (const Bbeta_c = 0.15e-3)
+
+		 (const Kbeta_c = -11.765)
+
+		 (const g  = 0.04)
+		 (const e = -84.69)
+		 )
+	      
+      ) ;; end KCa current
+
+
+   (component (name Kir ) =
+
+              Kirfun (
+			 (const Aalpha_d = 0.13289)
+			 (const Kalpha_d = -24.3902)
+
+			 (const V0alpha_d = -83.94)
+			 (const Abeta_d   = 0.16994)
+
+			 (const Kbeta_d = 35.714)
+			 (const V0beta_d = -83.94)
+
+			 (const g = 0.0009)
+			 (const e = -84.69)
+                         )
+	      
+	      ) ;; end Kir current
+
+
+   (component (name KM ) =
+              
+              KMfun (
+			 ;; rate constants
+			 (const Aalpha_n = 0.0033)
+
+			 (const Kalpha_n  = 40)
+			 (const V0alpha_n = -30)
+			 (const Abeta_n   = 0.0033)
+
+			 (const Kbeta_n  = -20)
+			 (const V0beta_n = -30)
+			 (const V0_ninf  = -35)
+			 (const   B_ninf = 6)
+
+			 (const g = 0.00025)
+			 (const e = -84.69)
+                         )
+	      
+	      ) ;; end KM current
+
+   (component (name KV ) =
+
+              KVfun (
+
+			 (const Aalpha_n = -0.01)
+			 (const Kalpha_n = -10)
+			 (const V0alpha_n = -25)
+			 (const Abeta_n = 0.125)
+	
+			 (const Kbeta_n = -80)
+			 (const V0beta_n = -35)
+
+			 (const g  = 0.003)
+			 (const e = -84.69)
+                         )
+	      
+	      ) ;; end KV current
+	      
+   
+
+
+   (component (name Na ) =
+
+              Nafun (
+			 (const Aalfa = 353.91)
+			 (const Valfa = 13.99)
+			 (const Abeta = 1.272)
+			 (const Vbeta = 13.99)
+			 (const Agamma = 150)
+			 (const Adelta = 40)
+			 (const Aepsilon = 1.75)
+			 (const Ateta = 0.0201)
+			 (const Vteta = 25)
+			 (const ACon = 0.005)
+			 (const ACoff = 0.5)
+			 (const	AOon = 0.75)
+			 (const	AOoff = 0.005)
+			 (const n1 = 5.422)
+			 (const n2 = 3.279)
+			 (const n3 = 1.83)
+			 (const n4 = 0.738)
+	
+			 (const  g  = 0.013)
+			 (const e = 87.39)
+                         )
+	      
+	      ) ;; end Na current
+
+
+   (component (name Lkg1) = 
+
+              Lkg1fun (
+			 (const  g  = (5.68e-5))
+			 (const e = -16.5)
+                         )
+	      
+	      ) ;; end leak current
+
+
+   (component (name Lkg2) =
+
+              Lkg2fun (
+			 (const g  = (3e-5))
+			 (const e = -65)
+                         )
+	      
+	      ) ;; end leak current
+
+
+))

@@ -1,0 +1,48 @@
+{#
+   NEST spike emission 
+
+   This template generates code that handles detection of spiking
+   threshold and generation of corresponding spike events.
+
+   Template variables are:
+
+   - ODEmethod: the current used solver method; can be "cvode" "ida" or "gsl"
+   - modelName: the name of the current system
+   - abstol: the absolute error tolerance, if given
+   - stateIndexMap: a dictionary mapping state names to state vector indices
+                     (state "v" is always at index 0)
+   - defaultDefs: a dictionary of "default" parameters. 
+
+    When the GSL method is chosen, defaultDefs is used to obtain the
+    value of the V_t parameter, which if present determines the
+    spiking threshold.
+
+#}
+
+{% if ((ODEmethod == "cvode") or (ODEmethod == "ida")) %}
+   {
+      set_spiketime(Time::ms(tt));
+      SpikeEvent se;
+      for (int i = 0; i < N; i++)
+      {
+          S_.y_[i] = Ith(B_.y,i);
+      }
+      network()->send(*this, se, lag);
+      adjust_zero_crossings(B_.y, {% if abstol %}{{abstol}}{% else %}1e-7{% endif %});
+      continue;
+   }
+
+{% elif ((ODEmethod == "gsl") and ("V_t" in defaultDefs)) %}
+
+         if ( S_.r_ > 0 )
+	    S_.r_--;
+         else
+	    if (S_.y_[{{stateIndexMap | attr("v")}}] >= P_.V_t && V_.U_old_ > S_.y_[{{stateIndexMap | attr("v")}}])
+	      {
+                S_.r_ = V_.RefractoryCounts_;
+		set_spiketime(Time::step(origin.get_steps()+lag+1));
+		SpikeEvent se;
+		network()->send(*this, se, lag);
+	      };
+
+{% endif %}

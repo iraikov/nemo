@@ -1,0 +1,1389 @@
+
+;; Cerebellar Purkinje Cell: resurgent Na current and high frequency
+;; firing (Khaliq et al 2003).
+
+(nemo-model Khaliq03
+ 
+ (
+  (input v) 
+
+   (component (type defaults) 
+      (const V_t     =  -35  (unit mV))
+      (output V_t)
+      )
+
+  (const ena = 60)
+  (const ek = -88)
+  (const ca0 = 1e-4)
+
+  (component (type decaying-pool) (name ca)
+
+             (input (ica from ion-currents))
+
+             (const  F = 96485.309)
+             (const  ca_depth   = 0.1)
+             (const  ca_beta    = 1.0)
+             (const cao     = 2.4)
+
+             (d (ca) =  ((neg (ica) / (2 * ca0 * F * ca_depth)) -
+                          ((if (ca < ca0) then ca0 else ca) * ca_beta))
+                (initial ca0))
+
+             (cac = (if (ca < ca0) then ca0 else ca))
+
+             (output cac cao))
+
+
+  (component (type membrane-capacitance)
+             (const C_m  = (1))
+             (output C_m))
+
+
+   (component (type geometry) (name soma)
+         (const L = 20)
+         (const diam = 20)
+	 (output L diam ))
+
+  (component (type ionic-current) (name CaBK)
+   ;: BK-type Purkinje calcium-activated potassium current
+
+             (input 
+              (cai from ion-pools)
+              (cao from ion-pools))
+
+             (component (type gate)
+
+                        ;; constants
+                        (const ztau = 1.0)
+
+                        ;; rate functions
+
+                        (CaBK_v = (v + 5))
+
+                        (minf = (let ((vh -28.9)
+			              (k  6.2))
+                                  (1.0 / (1.0 + exp (neg ((CaBK_v - vh) / k))))))
+
+                        (mtau = (let
+                                    ((y0   0.000505)
+                                     (vh1  -33.3)
+                                     (k1   -10.0)
+                                     (vh2  86.4)
+                                     (k2   10.1))
+	                          ((1e3) * (y0 + 1 / (exp ((CaBK_v + vh1) / k1) + 
+                                                          exp ((CaBK_v + vh2) / k2))))))
+
+                        (hinf = (let 
+                                    ((y0  0.085)
+                                     (vh  -32.0)
+                                     (k   5.8))
+	                          (y0 + (1 - y0) / (1 + exp ((CaBK_v - vh) / k)))))
+                              
+
+                        (htau = (let
+                                    ((y0   0.0019)
+                                     (vh1  -54.2)
+                                     (k1   -12.9)
+                                     (vh2   48.5)
+                                     (k2    5.2))
+	                          ((1e3) * (y0 + 1 / (exp ((CaBK_v + vh1) / k1) + exp ((CaBK_v + vh2) / k2))))))
+
+
+                        (zinf = (let ((k 0.001))
+	                          (1 / (1 + (k / cai)))))
+
+                        (z_alpha = (zinf / ztau))
+                        (z_beta  = ((1 - zinf) / ztau))
+
+                        (reaction
+			  (z
+                           (transitions (<-> O C z_alpha z_beta))
+                           (conserve  ((1 = (O + C))))
+                           (initial   (let ((k 0.001)) 
+                                        (1 / (1 + k / ca0))))
+                           (open O)
+                           (power 2)))
+			 
+                        (output z)
+			 
+                        (hh-ionic-gate 
+                         (CaBK  ;; ion name: exported variables will be of the form {ion}_{id}
+                          (initial-m  (minf))
+                          (initial-h  (hinf))
+                          (m-power    3)
+                          (h-power    1)
+                          (m-inf      (minf))
+                          (m-tau      (mtau))
+                          (h-inf      (hinf))
+                          (h-tau      (htau))))
+
+                        )
+              
+              (component (type pore)
+			 (const  gbar_CaBK  = 0.007)
+			 (output gbar_CaBK ))
+              
+              (component (type permeating-ion) (name k)
+			 (const e_CaBK = ek)
+			 (output e_CaBK))
+
+              (component (type modulating-ion) (name ca) )
+
+              
+              ;; end BK current
+              )
+
+   
+  (component (type ionic-current) (name CaP)
+              ;; HH P-type Calcium current
+
+             (input 
+              (cai from ion-pools)
+              (cao from ion-pools))
+              
+             (component (type gate)
+
+                        
+                        ;; rate functions
+                        (inf =  (let ((cv  -19)  (ck  5.5))
+	                          (1.0 / (1.0 + exp (neg ((v - cv) / ck))))))
+
+                        (tau = ((1e3) *
+	                        (if (v > -50) 
+                                    then (0.000191 + (0.00376 * exp (neg (((v + 41.9) / 27.8) ^ 2))))
+                                    else (0.00026367 + (0.1278 * exp (0.10327 * v))))))
+
+
+                        (hh-ionic-gate 
+                         (CaP  ;; ion name: exported variables will be of the form {ion}_{id}
+                          (initial-m  (inf))
+                          (m-power    1)
+                          (h-power    0)
+                          (m-inf      inf)
+                          (m-tau      tau)))
+                        )
+
+             (component (type permeability)
+
+                        (fun ghk (v ci co)
+                             (let ((F  9.6485e4)
+                                   (R  8.3145)
+                                   (T  (22 + 273.19))  
+                                   (Z  2)
+                                   (E  ((1e-3) * v)))
+                               (let ((k0 ((Z * (F * E)) / (R * T))))
+                                 (let ((k1 (exp (neg (k0))))
+                                       (k2 (((Z ^ 2) * (E * (F ^ 2))) / (R * T))))
+                                   (1e-6) * (if (abs (1 - k1) < 1e-6) 
+                                                then (Z * F * (ci - (co * k1)) * (1 - k0))
+                                                else (k2 * (ci - (co * k1)) / (1 - k1)))))))
+			 
+                        (const pcabar  = 0.00005)
+                        (pca           = (pcabar * ghk (v cai cao)))
+
+                        (output pca pcabar))
+              
+             (component (type permeating-ion) (name ca))
+
+             ;; end CaP current
+             )
+
+
+  (component (type ionic-current) (name K1)
+             
+             ;; HH TEA-sensitive Purkinje potassium current
+
+             (component (type gate)
+
+			 ;; constants
+
+			 ;; rate functions
+                        
+                        (K1_v = (v + 11)) ;; account for junction potential
+
+                        (minf = (let ((mivh -24)
+		                      (mik  15.4))
+                                  (1 / (1 + exp (neg (K1_v - mivh) / mik)))))
+
+
+                        (mtau = (let ((mty0   0.00012851)
+	                              (mtvh1  100.7)
+		                      (mtk1   12.9)
+		                      (mtvh2  -56.0)
+		                      (mtk2   -23.1))
+                                  (1e3 * (if (K1_v < -35) 
+                                             then (3.0 * (3.4225e-5 + 0.00498 * exp (neg (K1_v) / -28.29)))
+                                             else (mty0 + 1.0 / (exp ((K1_v + mtvh1) / mtk1) + exp ((K1_v + mtvh2) / mtk2)))
+                                             ))))
+
+                        (hinf = (let ((hiy0  0.31)
+		                      (hiA   0.78)
+		                      (hivh  -5.802)
+		                      (hik   11.2))
+                                  (hiy0 + hiA / (1 + exp ((K1_v - hivh) / hik)))))
+
+
+                        (htau =  (1e3 * (if ( K1_v > 0 ) 
+                                            then (0.0012 + 0.0023 * exp (-0.141 * K1_v))
+                                            else (1.2202e-05 + 0.012 * exp (neg (((K1_v - (-56.3)) / 49.6) ^ 2))))))
+
+                        (hh-ionic-gate 
+                         (K1  ;; ion name: exported variables will be of the form {ion}_{id}
+                          (initial-m  (minf))
+                          (initial-h  (hinf))
+                          (m-power    3)
+                          (h-power    1)
+                          (m-inf      (minf))
+                          (m-tau      (mtau))
+                          (h-inf      (hinf))
+                          (h-tau      (htau))))
+
+                        )
+              
+             (component (type pore)
+                        (const  gbar  = 0.004)
+                        (output gbar))
+              
+             (component (type permeating-ion) (name k)
+                        (const e = ek)
+                        (output e))
+             
+             ;; end K1 current
+             )
+
+
+  (component (type ionic-current) (name K2)
+             ;; HH Low TEA-sensitive Purkinje potassium current
+             
+             (component (type gate)
+                        
+                        ;; constants
+                        
+                        ;; rate functions
+                        
+                        (K2_v = (v + 11)) ;; account for junction potential
+
+                        (minf = (let ((mivh -24)
+		                      (mik  20.4))
+                                  (1 / (1 + exp ((neg (K2_v - mivh)) / mik)))))
+
+
+                        (mtau = ((1e3) * (if (K2_v < -20) 
+                                             then (0.000688 + 1 / (exp ((K2_v + 64.2) / 6.5) + exp ((K2_v - 141.5) / -34.8)))
+                                             else (0.00016 + 0.0008 * exp (-0.0267 * K2_v)))))
+                              
+			 
+                        (hh-ionic-gate 
+                         (K2  ;; ion name: exported variables will be of the form {ion}_{id}
+                          (initial-m  (minf))
+                          (m-power    4)
+                          (h-power    0)
+                          (m-inf      (minf))
+                          (m-tau      (mtau))))
+                        )
+              
+             (component (type pore)
+                        (const  gbar  = 0.002)
+                        (output gbar))
+              
+             (component (type permeating-ion) (name k)
+                        (const e = ek)
+                        (output e))
+              
+             ;; end K2 current
+             )
+
+	
+  (component (type ionic-current) (name K3)
+             ;; HH slow TEA-insensitive Purkinje potassium current
+             
+             (component (type gate)
+                        
+                        ;; constants
+
+                        ;; rate functions
+
+                        (K3_v = (v + 11)) ;; account for junction potential
+
+                        (minf = (let ((mivh -16.5)
+		                      (mik  18.4))
+                                  (1 / (1 + exp ((neg (K3_v - mivh)) / mik)))))
+
+
+                        (mtau = ((1e3) * (0.000796 + 1.0 / (exp ((K3_v + 73.2) / 11.7) + exp ((K3_v - 306.7) / -74.2)))))
+			 
+                        (hh-ionic-gate 
+                         (K3  ;; ion name: exported variables will be of the form {ion}_{id}
+                          (initial-m  (minf))
+                          (m-power    4)
+                          (h-power    0)
+                          (m-inf      (minf))
+                          (m-tau      (mtau))))
+                        )
+
+             
+             (component (type pore)
+                        (const  gbar  =  0.004)
+                        (output gbar))
+              
+             (component (type permeating-ion) (name k)
+                        (const e = ek)
+                        (output e))
+              ;; end K3 current
+
+             )
+
+  
+  (component (type ionic-current) (name Narsg) 
+             
+             ;; constants
+             
+             (component (type gate)
+				
+                        (const Con   = 0.005)
+                        (const Coff  = 0.5)
+                        (const Oon   = 0.75)
+                        (const Ooff  = 0.005)
+
+                        (const alfac = (pow ((Oon / Con) (1.0 / 4.0))))
+                        (const btfac = (pow ((Ooff / Coff) (1.0 / 4.0))))
+                         
+                        (const alpha = 150)
+                        (const beta  = 3)
+                        (const gamma = 150)
+                        (const delta = 40)
+                        (const epsilon = 1.75)
+                        (const zeta = 0.03)
+                        (const x1 = 20)
+                        (const x2 = -20)
+                        (const x3 = 1e12)
+                        (const x4 = -1e12)
+                        (const x5 = 1e12)
+                        (const x6 = -25)
+  
+                         ;; rate functions
+                         
+                        (f01 = (4.0 * alpha * exp (v / x1)))
+                         (f02 = (3.0 * alpha * exp (v / x1)))
+                         (f03 = (2.0 * alpha * exp (v / x1)))
+                         (f04 = (alpha * exp (v / x1)))
+                         (f0O = (gamma * exp (v / x3)))
+                         (fip = (epsilon * exp (v / x5)))
+                         (f11 = (4.0 * alpha * alfac * exp (v / x1)))
+                         (f12 = (3.0 * alpha * alfac * exp (v / x1)))
+                         (f13 = (2.0 * alpha * alfac * exp (v / x1)))
+                         (f14 = (alpha * alfac * exp (v / x1)))
+                         (f1n = (gamma * exp (v / x3)))
+                         
+                         (fi1 = (Con))
+                         (fi2 = (Con * alfac))
+                         (fi3 = (Con * alfac * alfac))
+                         (fi4 = (Con * alfac * alfac * alfac))
+                         (fi5 = (Con * alfac * alfac * alfac * alfac))
+                         (fin = (Oon))
+		 
+                         (b01 = (beta * exp (v / x2)))
+                         (b02 = (2.0 * beta * exp (v / x2)))
+                         (b03 = (3.0 * beta * exp (v / x2)))
+                         (b04 = (4.0 * beta * exp (v / x2)))
+                         (b0O = (delta * exp (v / x4)))
+                         (bip = (zeta * exp (v / x6)))
+                         
+                         (b11 = (beta * btfac * exp (v / x2)))
+                         (b12 = (2.0 * beta * btfac * exp (v / x2)))
+                         (b13 = (3.0 * beta * btfac * exp (v / x2)))
+                         (b14 = (4.0 * beta * btfac * exp (v / x2)))
+                         (b1n = (delta * exp (v / x4)))
+                         
+                         (bi1 = (Coff))
+                         (bi2 = (Coff * btfac))
+                         (bi3 = (Coff * btfac * btfac))
+                         (bi4 = (Coff * btfac * btfac * btfac))
+                         (bi5 = (Coff * btfac * btfac * btfac * btfac))
+                         (bin = (Ooff))
+
+                         (reaction
+                          (Narsg_z
+                           (transitions
+                            (<-> C1 C2 f01 b01)
+                            (<-> C2 C3 f02 b02)
+                            (<-> C3 C4 f03 b03)
+                            (<-> C4 C5 f04 b04)
+                            (<-> C5 O  f0O b0O)
+                            (<-> O  B  fip bip)
+                            (<-> O  I6 fin bin)
+                            (<-> C1 I1 fi1 bi1)
+                            (<-> C2 I2 fi2 bi2)
+                            (<-> C3 I3 fi3 bi3)
+                            (<-> C4 I4 fi4 bi4)
+                            (<-> C5 I5 fi5 bi5)
+                            (<-> I1 I2 f11 b11)
+                            (<-> I2 I3 f12 b12)
+                            (<-> I3 I4 f13 b13)
+                            (<-> I4 I5 f14 b14)
+                            (<-> I5 I6 f1n b1n)
+                            )
+                           (conserve ((1 = (I1 + I2 + I3 + I4 + I5 + I6 + C1 + C2 + C3 + C4 + C5 + O + B))))
+                           (open O)
+                           (power 1))
+                           )
+                   
+                         (output Narsg_z)
+                         )
+             
+             (component (type pore)
+                        (const  gbar  = 0.015)
+                        (output gbar))
+		
+             (component (type permeating-ion) (name na)
+                        (const e = ena)
+                        (output e))
+
+             )
+                         
+  (component (type ionic-current) (name Ih)
+              
+             (component (type gate)
+                         
+                        ;; rate functions
+                        
+                        (inf = (1.0 / (1.0 + exp ((v + 90.1) / 9.9))))
+			 
+                        (tau = ((1e3) * (0.19 + 0.72 * exp (neg (((v - (-81.5)) / 11.9) ^ 2)))))
+
+                        (hh-ionic-gate 
+                         (Ih  ;; ion name: exported variables will be of the form {ion}_{id}
+                          (initial-m (inf))
+                          (m-power   1)
+                          (h-power   0)
+                          (m-inf     (inf))
+                          (m-tau     (tau))))
+                        )
+
+              (component (type pore)
+			 (const  gbar  = 0.0001)
+			 (output gbar))
+              
+              (component (type permeating-ion) (name non-specific)
+                         (const e = -30)
+                         (output e))
+              
+              ;; end Ih current
+              )
+	
+  (component (type ionic-current) (name Leak)
+              
+             (component (type pore)
+                        (const  gbar  = 5e-5)
+                        (output gbar))
+              
+             (component (type permeating-ion) (name non-specific)
+                        (const e = -60)
+                        (output e))
+              
+             ;; end leak current
+             )
+
+
+  (component (type voltage-clamp) (name K1)
+           
+             (const vchold   = -71)
+             (const vcbase   = -69)
+             (const vcinc    = 10)
+             (const vcsteps  = 8)
+             (const vchdur   = 30)
+             (const vcbdur   = 100)
+           
+           (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+           )
+
+              
+  (component (type voltage-clamp) (name K2)
+   
+             (const vchold   = -71)
+             (const vcbase   = -69)
+             (const vcinc    = 10)
+             (const vcsteps  = 9)
+             (const vchdur   = 30)
+             (const vcbdur   = 100)
+
+           (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+           )
+
+
+  (component (type voltage-clamp) (name K3)
+
+             (const vchold   = -71)
+             (const vcbase   = -61)
+             (const vcinc    = 10)
+             (const vcsteps  = 8)
+             (const vchdur   = 30)
+             (const vcbdur   = 100)
+
+           (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+           )
+
+
+  (component (type voltage-clamp) (name CaBK)
+
+             (const vchold   = -90)
+             (const vcbase   = -40)
+             (const vcinc    = 10)
+             (const vcsteps  = 5)
+             (const vchdur   = 5)
+             (const vcbdur   = 20)
+
+	      (const cnhold   = 5e-5)
+	      (const cnbase   = 5e-5)
+	      (const cninc    = 1e3)
+	      (const cnsteps  = 1)
+	      (const cnout    = 2)
+             
+             (output vchold vcbase vcinc vcsteps vchdur vcbdur
+                      cnhold cnbase cninc cnsteps cnout)             
+            )
+
+
+  (component (type voltage-clamp) (name CaP)
+
+             (const vchold   = -90)
+             (const vcbase   = -90)
+             (const vcinc    = 10)
+             (const vcsteps  = 11)
+             (const vchdur   = 5)
+             (const vcbdur   = 10)
+
+             (component (type default-concentration) (name ca)
+                        (const cn       = 1e-4)
+                        (const cnout    = 2)
+                        (output cn cnout))
+             
+             (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+             )
+
+
+  (component (type voltage-clamp) (name Ih)
+
+             (const vchold   = -50)
+             (const vcbase   = -60)
+             (const vcinc    = -10)
+             (const vcsteps  = 7)
+             (const vchdur   = 100)
+             (const vcbdur   = 200)
+
+           (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+           )
+
+
+  (component (type voltage-clamp) (name Narsg)
+
+             (const vchold   = -71)
+             (const vcbase   = -60)
+             (const vcinc    = 10)
+             (const vcsteps  = 9)
+             (const vchdur   = 30)
+             (const vcbdur   = 100)
+           
+             (output vchold vcbase vcinc vcsteps vchdur vcbdur)
+             )
+  )
+ 
+ ;; Following are templates for various driver scripts used to run this model
+ (
+  (".hoc" ()  
+#<<EOF
+create soma
+access soma
+insert {{model_name}}
+
+soma {
+	nseg = 1
+	diam = 20
+	L = 20
+        cm = 1
+    }
+
+EOF
+)
+
+  ("template.hoc" ()  
+#<<EOF
+begintemplate Purkinje
+
+public soma
+
+create soma
+
+proc init() {
+
+  soma {
+	nseg = 1
+	diam = 20
+	L = 20
+        cm = 1
+
+        insert {{model_name}}_ca
+        insert {{model_name}}_CaBK
+        insert {{model_name}}_CaP
+        insert {{model_name}}_K1
+        insert {{model_name}}_K2
+        insert {{model_name}}_K3
+        insert {{model_name}}_Narsg
+        insert {{model_name}}_Ih
+        insert {{model_name}}_Leak
+
+        ena = 60
+        ek = -88
+        cai = 1e-4
+  }
+}
+
+endtemplate Purkinje
+EOF
+)
+
+
+  ("neuron_run.hoc" ()  
+     
+#<<EOF
+
+load_file( "{{model_name}}_template.hoc" )
+
+{% with tstop = default(tstop, 3000) %}
+tstop = {{tstop}}
+{% endwith %}
+
+dt = 0.025
+
+objref pc
+pc = new Purkinje()
+
+stim_amp=0.01875
+
+objref stim
+pc.soma stim = new IClamp(0.5)
+stim.del = 1000
+stim.dur = 1850
+stim.amp = stim_amp
+ 
+objref rec_v
+rec_v = new Vector()
+rec_v.record (&pc.soma.v(0.5))
+
+objref rec_t
+rec_t = new Vector()
+rec_t.record (&t)
+
+run()
+
+objref output_file
+output_file = new File()
+output_file.wopen("Purkinje.dat")
+
+for (i=0; i < rec_v.size(); i=i+1) {
+  output_file.printf("%g %g\n", rec_t.x[i], rec_v.x[i])
+}
+
+output_file.close()
+quit()
+
+EOF
+)
+
+
+    ("nestmodule_bootstrap.sh" ()  
+#<<EOF
+#!/bin/sh
+
+echo "Bootstrapping {{model_name}} module..."
+
+if test -d autom4te.cache ; then
+# we must remove this cache, because it
+# may screw up things if configure is run for
+# different platforms. 
+  echo "  -> Removing old automake cache ..."
+  rm -rf autom4te.cache
+fi
+
+echo "  -> Running aclocal ..."
+aclocal
+
+echo "  -> Running libtoolize ..."
+if [ `uname -s` = Darwin ] ; then
+# libtoolize is glibtoolize on OSX
+  LIBTOOLIZE=glibtoolize
+else  
+  LIBTOOLIZE=libtoolize
+fi
+
+libtool_major=`$LIBTOOLIZE --version | head -n1 | cut -d\) -f2 | cut -d\. -f1`
+$LIBTOOLIZE --force --copy --ltdl
+
+echo "  -> Re-running aclocal ..."
+if test $libtool_major -le 2; then
+  aclocal --force
+else
+  aclocal --force -I $(pwd)/libltdl/m4
+fi
+
+echo "  -> Running autoconf ..."
+autoconf
+
+# autoheader must run before automake 
+echo "  -> Running autoheader ..."
+autoheader
+
+echo "  -> Running automake ..."
+automake --foreign --add-missing --force-missing --copy
+
+echo "Done."
+
+EOF
+)
+
+    ("nestmodule_configure.ac" ()  
+#<<EOF
+AC_PREREQ(2.52)
+
+AC_INIT({{model_name}}module, 1.0, raikov@oist.jp)
+
+# These variables are exported to include/config.h
+{{model_name}}MODULE_MAJOR=1
+{{model_name}}MODULE_MINOR=0
+{{model_name}}MODULE_PATCHLEVEL=0
+
+# Exporting source and build directories requires full path names.
+# Thus we have to expand.
+# Here, we are in top build dir, since source dir must exist, we can just
+# move there and call pwd
+if test "x$srcdir" = x ; then
+  PKGSRCDIR=`pwd`
+else
+  PKGSRCDIR=`cd $srcdir && pwd`
+fi
+PKGBUILDDIR=`pwd`
+
+# If this is not called, install-sh will be put into .. by bootstrap.sh
+# moritz, 06-26-06
+AC_CONFIG_AUX_DIR(.)
+
+AM_INIT_AUTOMAKE(nest, ${{model_name}}MODULE_VERSION)
+
+# obtain host system type; HEP 2004-12-20
+AC_CANONICAL_HOST
+
+# ------------------------------------------------------------------------
+# Handle options
+#
+# NOTE: No programs/compilations must be run in this section;
+#       otherwise CFLAGS and CXXFLAGS may take on funny default
+#       values.
+#       HEP 2004-12-20
+# ------------------------------------------------------------------------
+
+# nest-config
+NEST_CONFIG=`which nest-config`
+AC_ARG_WITH(nest,[  --with-nest=script	nest-config script including path],
+[
+  if test "$withval" != yes; then
+    NEST_CONFIG=$withval
+  else
+    AC_MSG_ERROR([--with-nest-config expects the nest-config script as argument. See README for details.])
+  fi
+])
+
+# -------------------------------------------
+# END Handle options
+# -------------------------------------------
+
+# sundials-config
+SUNDIALS_CONFIG=`which sundials-config`
+AC_ARG_WITH(sundials,[  --with-sundials=script	sundials-config script including path],
+[
+  if test "$withval" != yes; then
+    SUNDIALS_CONFIG=$withval
+#  else
+#    AC_MSG_ERROR([--with-sundials-config expects the sundials-config script as argument. See README for details.])
+  fi
+])
+
+
+# does nest-config work
+AC_MSG_CHECKING([for nest-config ])
+AC_CHECK_FILE($NEST_CONFIG, HAVE_NEST=yes, 
+              AC_MSG_ERROR([No usable nest-config was found. You may want to use --with-nest-config.]))
+AC_MSG_RESULT(found)
+
+AC_MSG_CHECKING([for sundials-config ])
+AC_CHECK_FILE($SUNDIALS_CONFIG, HAVE_SUNDIALS=yes, 
+              AC_MSG_WARN([No usable sundials-config was found. You may want to use --with-sundials-config.]))
+AC_MSG_RESULT(found)
+
+# the following will crash if nest-config does not run
+# careful, lines below must not break
+AC_MSG_CHECKING([for NEST directory information ])
+NEST_PREFIX=`$NEST_CONFIG --prefix`
+NEST_CPPFLAGS=`$NEST_CONFIG --cflags`
+NEST_COMPILER=`$NEST_CONFIG --compiler`
+if test $prefix = NONE; then prefix=`$NEST_CONFIG --prefix`; fi
+AC_MSG_RESULT($NEST_CPPFLAGS)
+
+
+AC_MSG_CHECKING([for SUNDIALS preprocessor flags ])
+SUNDIALS_CPPFLAGS="`$SUNDIALS_CONFIG -m cvode -t s -l c -s cppflags`"
+AC_MSG_RESULT($SUNDIALS_CPPFLAGS)
+
+AC_MSG_CHECKING([for SUNDIALS linker options ])
+SUNDIALS_LDFLAGS="`$SUNDIALS_CONFIG -m cvode -t s -l c -s libs` -lblas -llapack"
+AC_MSG_RESULT($SUNDIALS_LDFLAGS)
+
+# Set the platform-dependent compiler flags based on the canonical
+# host string.  These flags are placed in AM_{C,CXX}FLAGS.  If
+# {C,CXX}FLAGS are given as environment variables, then they are
+# appended to the set of automatically chosen flags.  After
+# {C,CXX}FLAGS have been read out, they must be cleared, since
+# system-dependent defaults will otherwise be placed into the
+# Makefiles.  HEP 2004-12-20.
+
+# Before we can determine the proper compiler flags, we must know
+# which compiler we are using.  Since the pertaining AC macros run the
+# compiler and set CFLAGS, CXXFLAGS to system-dependent values, we
+# need to save command line/enviroment settings of these variables
+# first. AC_AIX must run before the compiler is run, so we must run it
+# here.
+# HEP 2004-12-21
+
+{{model_name}}MODULE_SAVE_CXXFLAGS=$CXXFLAGS
+
+# Must first check if we are on AIX
+AC_AIX
+
+# Check for C++ compiler, looking for the same compiler
+# used with NEST
+AC_PROG_CXX([ $NEST_COMPILER ])
+
+# the following is makeshift, should have the macro set proper
+# {{model_name}}MODULE_SET_CXXFLAGS
+AM_CXXFLAGS=${{model_name}}MODULE_SAVE_CXXFLAGS
+CXXFLAGS=
+
+## Configure C environment
+
+AC_PROG_LD
+AC_PROG_INSTALL
+
+AC_LIBLTDL_CONVENIENCE	   ## put libltdl into a convenience library
+AC_PROG_LIBTOOL		   ## use libtool
+AC_CONFIG_SUBDIRS(libltdl) ## also configure subdir containing libltdl
+
+#-- Set the language to C++
+AC_LANG_CPLUSPLUS
+
+#-- Look for programs needed in the Makefile
+AC_PROG_CXXCPP
+AM_PROG_LIBTOOL
+AC_PATH_PROGS([MAKE],[gmake make],[make])
+
+# ---------------------------------------------------------------
+# Configure directories to be built
+# ---------------------------------------------------------------
+
+PKGDATADIR=$datadir/$PACKAGE
+PKGDOCDIR=$datadir/doc/$PACKAGE
+
+# set up directories from which to build help
+# second line replaces space with colon as separator
+HELPDIRS="$PKGSRCDIR $PKGSRCDIR/sli"
+HELPDIRS=`echo $HELPDIRS | tr " " ":"`
+
+#-- Replace these variables in *.in
+AC_SUBST(HAVE_NEST)
+AC_SUBST(NEST_CONFIG)
+AC_SUBST(NEST_CPPFLAGS)
+AC_SUBST(NEST_COMPILER)
+AC_SUBST(NEST_PREFIX)
+AC_SUBST(HELPDIRS)
+AC_SUBST(PKGSRCDIR)
+AC_SUBST(PKGBUILDDIR)
+AC_SUBST(PKGDATADIR)
+AC_SUBST(PKGDOCDIR)
+AC_SUBST(KERNEL)
+AC_SUBST(HOST)
+AC_SUBST(SED)
+AC_SUBST(LD)
+AC_SUBST(host_os)
+AC_SUBST(host_cpu)
+AC_SUBST(host_vendor)
+AC_SUBST(AS)
+AC_SUBST(CXX)
+AC_SUBST(AR)
+AC_SUBST(ARFLAGS)
+AC_SUBST(CXX_AR)
+AC_SUBST(AM_CXXFLAGS)
+AC_SUBST(AM_CFLAGS)
+AC_SUBST(MAKE)
+AC_SUBST(MAKE_FLAGS)
+AC_SUBST(INCLTDL)
+AC_SUBST(LIBLTDL)
+AC_SUBST(SUNDIALS_CONFIG)
+AC_SUBST(SUNDIALS_CPPFLAGS)
+AC_SUBST(SUNDIALS_LDFLAGS)
+
+AM_CONFIG_HEADER({{model_name}}module_config.h:{{model_name}}module_config.h.in)
+AC_CONFIG_FILES(Makefile)
+
+# -----------------------------------------------
+# Create output
+# -----------------------------------------------
+AC_OUTPUT
+
+
+# -----------------------------------------------
+# Report, after output at end of configure run
+# Must come after AC_OUTPUT, so that it is 
+# displayed after libltdl has been configured
+# -----------------------------------------------
+
+echo
+echo "-------------------------------------------------------"
+echo "{{model_name}} module Configuration Summary"
+echo "-------------------------------------------------------"
+echo
+echo "C++ compiler        : $CXX"
+echo "C++ compiler flags  : $AM_CXXFLAGS"
+echo "NEST compiler flags : $NEST_CPPFLAGS"
+echo "SUNDIALS compiler flags : $SUNDIALS_CPPFLAGS"
+echo "SUNDIALS linker flags : $SUNDIALS_LDFLAGS"
+
+# these variables will still contain '${prefix}'
+# we want to have the versions where this is resolved, too:
+eval eval eval  PKGDOCDIR_AS_CONFIGURED=$PKGDOCDIR
+eval eval eval  PKGDATADIR_AS_CONFIGURED=$PKGDATADIR
+
+echo
+echo "-------------------------------------------------------"
+echo
+echo "You can build and install {{model_name}} module now, using"
+echo "  make"
+echo "  make install"
+echo
+echo "{{model_name}} module will be installed to:"
+echo -n "  "; eval eval echo "$libdir"
+echo
+
+EOF
+)
+
+    ("nestmodule_makefile.am" ()  
+#<<EOF
+
+# Automake file for external dynamic modules for NEST
+#
+# Hans Ekkehard Plesser, April 2008
+# Automake file for the Developer Module
+# 
+# lib{{model_name}}module is built as a normal, installable library.
+# It will be installed to $prefix/lib by make install.
+# 
+# Headers from this directory are not to be installed upon
+# make install. They are therefore included in _SOURCES.
+
+
+libdir= @libdir@/nest
+
+lib_LTLIBRARIES=      {{model_name}}module.la lib{{model_name}}module.la
+
+{{model_name}}module_la_CXXFLAGS= @AM_CXXFLAGS@
+{{model_name}}module_la_SOURCES=  {{model_name}}module.cpp      {{model_name}}module.h      \
+                      {{model_name}}.cpp {{model_name}}.h 
+{{model_name}}module_la_LDFLAGS=  -module
+
+lib{{model_name}}module_la_CXXFLAGS= $({{model_name}}module_la_CXXFLAGS) -DLINKED_MODULE
+lib{{model_name}}module_la_SOURCES=  $({{model_name}}module_la_SOURCES)
+
+MAKEFLAGS= @MAKE_FLAGS@
+
+AM_CPPFLAGS= @NEST_CPPFLAGS@ \
+	     @SUNDIALS_CPPFLAGS@ \
+             @INCLTDL@      
+
+AM_LDFLAGS = @SUNDIALS_LDFLAGS@
+
+.PHONY: install-slidoc
+
+nobase_pkgdata_DATA=\
+	{{model_name}}module.sli
+
+install-slidoc:
+	NESTRCFILENAME=/dev/null $(DESTDIR)$(NEST_PREFIX)/bin/sli --userargs="@HELPDIRS@" $(NEST_PREFIX)/share/nest/sli/install-help.sli
+
+install-data-hook: install-exec install-slidoc
+
+EXTRA_DIST= sli
+
+EOF
+)
+
+    ("nestmodule.cpp" ()  
+#<<EOF
+/*
+ *  {{model_name}}module.cpp
+ *  This file is part of NEST.
+ *
+ *  Copyright (C) 2008 by
+ *  The NEST Initiative
+ *
+ *  See the file AUTHORS for details.
+ *
+ *  Permission is granted to compile and modify
+ *  this file for non-commercial use.
+ *  See the file LICENSE for details.
+ *
+ */
+
+// include necessary NEST headers
+//#include "config.h"
+#include "network.h"
+#include "model.h"
+#include "dynamicloader.h"
+#include "genericmodel.h"
+#include "generic_connector.h"
+#include "booldatum.h"
+#include "integerdatum.h"
+#include "tokenarray.h"
+#include "exceptions.h"
+#include "sliexceptions.h"
+#include "nestmodule.h"
+
+// include headers with your own stuff
+#include "{{model_name}}module.h"
+#include "{{model_name}}.h"
+
+// -- Interface to dynamic module loader ---------------------------------------
+
+/*
+ * The dynamic module loader must be able to find your module. 
+ * You make the module known to the loader by defining an instance of your 
+ * module class in global scope. This instance must have the name
+ *
+ * <modulename>_LTX_mod
+ *
+ * The dynamicloader can then load modulename and search for symbol "mod" in it.
+ */
+ 
+{{model_name}}nest::{{model_name}}Module {{model_name}}module_LTX_mod;
+
+// -- DynModule functions ------------------------------------------------------
+
+{{model_name}}nest::{{model_name}}Module::{{model_name}}Module()
+  { 
+#ifdef LINKED_MODULE
+     // register this module at the dynamic loader
+     // this is needed to allow for linking in this module at compile time
+     // all registered modules will be initialized by the main app's dynamic loader
+     nest::DynamicLoaderModule::registerLinkedModule(this);
+#endif     
+   }
+
+{{model_name}}nest::{{model_name}}Module::~{{model_name}}Module()
+   {
+   }
+
+   const std::string {{model_name}}nest::{{model_name}}Module::name(void) const
+   {
+     return std::string("{{model_name}} Module"); // Return name of the module
+   }
+
+   const std::string {{model_name}}nest::{{model_name}}Module::commandstring(void) const
+   {
+     /* 1. Tell interpreter that we provide the C++ part of {{model_name}}Module with the
+           current revision number. 
+        2. Instruct the interpreter to check that {{model_name}}module-init.sli exists, 
+           provides at least version 1.0 of the SLI interface to {{model_name}}Module, and
+           to load it.
+      */
+     return std::string("");
+   }
+
+   /* BeginDocumentation
+      Name: StepPatternConnect - Connect sources and targets with a stepping pattern
+      
+      Synopsis:
+      [sources] source_step [targets] target_step synmod StepPatternConnect -> n_connections
+      
+      Parameters:
+      [sources]     - Array containing GIDs of potential source neurons
+      source_step   - Make connection from every source_step'th neuron
+      [targets]     - Array containing GIDs of potential target neurons
+      target_step   - Make connection to every target_step'th neuron
+      synmod        - The synapse model to use (literal, must be key in synapsedict)
+      n_connections - Number of connections made
+      
+      Description:
+      This function subsamples the source and target arrays given with steps
+      source_step and target_step, beginning with the first element in each array,
+      and connects the selected nodes.
+      
+      Example:
+      /first_src 0 /network_size get def
+      /last_src /iaf_neuron 20 Create def  % nodes  1 .. 20
+      /src [first_src last_src] Range def
+      /last_tgt /iaf_neuron 10 Create def  % nodes 21 .. 30
+      /tgt [last_src 1 add last_tgt] Range def
+      
+      src 6 tgt 4 /drop_odd_spike StepPatternConnect 
+  
+      This connects nodes [1, 7, 13, 19] as sources to nodes [21, 25,
+      29] as targets using synapses of type drop_odd_spike, and
+      returning 12 as the number of connections.  The following
+      command will print the connections (you must paste the SLI
+      command as one long line):
+
+      src { /s Set << /source s /synapse_type /static_synapse >> FindConnections { GetStatus /target get } Map dup length 0 gt { cout s <- ( -> ) <- exch <-- endl } if ; } forall
+      1 -> [21 25 29]
+      7 -> [21 25 29]
+      13 -> [21 25 29]
+      19 -> [21 25 29]
+      
+      Remark:
+      This function is only provided as an example for how to write your own 
+      interface function. 
+      
+      Author:
+      Hans Ekkehard Plesser
+      
+      SeeAlso:
+      Connect, ConvergentConnect, DivergentConnect
+   */
+   void {{model_name}}nest::{{model_name}}Module::StepPatternConnect_Vi_i_Vi_i_lFunction::execute(SLIInterpreter *i) const
+   {
+     // Check if we have (at least) five arguments on the stack.
+     i->assert_stack_load(5);
+
+     // Retrieve source, source step, target, target step from the stack
+     const TokenArray sources = getValue<TokenArray> (i->OStack.pick(4)); // bottom
+     const long src_step      = getValue<long>       (i->OStack.pick(3));
+     const TokenArray targets = getValue<TokenArray> (i->OStack.pick(2));
+     const long tgt_step      = getValue<long>       (i->OStack.pick(1));  
+     const Name synmodel_name = getValue<std::string>(i->OStack.pick(0)); // top
+     
+     // Obtain synapse model index
+     const Token synmodel 
+       = nest::NestModule::get_network().get_synapsedict().lookup(synmodel_name);
+     if ( synmodel.empty() )
+       throw nest::UnknownSynapseType(synmodel_name.toString());
+     const nest::index synmodel_id = static_cast<nest::index>(synmodel);
+
+     // Build a list of targets with the given step
+     TokenArray selected_targets;
+     for ( size_t t = 0 ; t < targets.size() ; t += tgt_step )
+       selected_targets.push_back(targets[t]);
+     
+     // Now connect all appropriate sources to this list of targets
+     size_t Nconn = 0;  // counts connections
+     for ( size_t s = 0 ; s < sources.size() ; s += src_step )
+     {
+       // We must first obtain the GID of the source as integer
+       const nest::long_t sgid = getValue<nest::long_t>(sources[s]);
+
+       // nest::network::divergent_connect() requires weight and delay arrays. We want to use
+       // default values from the synapse model, so we pass empty arrays.
+       nest::NestModule::get_network().divergent_connect(sgid, selected_targets, 
+							 TokenArray(), TokenArray(),
+							 synmodel_id);
+       Nconn += selected_targets.size();
+     }
+
+     // We get here only if none of the operations above throws and exception.
+     // Now we can safely remove the arguments from the stack and push Nconn
+     // as our result. 
+     i->OStack.pop(5);
+     i->OStack.push(Nconn);
+     
+     // Finally, we pop the call to this functions from the execution stack.
+     i->EStack.pop();
+   }
+
+  //-------------------------------------------------------------------------------------
+
+  void {{model_name}}nest::{{model_name}}Module::init(SLIInterpreter *i, nest::Network*)
+  {
+    /* Register a neuron or device model.
+       Give node type as template argument and the name as second argument.
+       The first argument is always a reference to the network.
+       Return value is a handle for later unregistration.
+    */
+       nest::register_model<nest::{{model_name}}>(nest::NestModule::get_network(), 
+					    "{{model_name}}");
+
+
+    /* Register a SLI function.
+       The first argument is the function name for SLI, the second a pointer to
+       the function object. If you do not want to overload the function in SLI,
+       you do not need to give the mangled name. If you give a mangled name, you
+       should define a type trie in the {{model_name}}module-init.sli file.
+    */
+    i->createcommand("StepPatternConnect_Vi_i_Vi_i_l", 
+                     &stepPatternConnect_Vi_i_Vi_i_lFunction);
+
+  }  // {{model_name}}Module::init()
+
+ 
+
+EOF
+)
+
+    ("nestmodule.h" ()  
+#<<EOF
+/*
+ *  {{model_name}}module.h
+ *
+ *  This file is part of NEST.
+ *
+ *  Copyright (C) 2008 by
+ *  The NEST Initiative
+ *
+ *  See the file AUTHORS for details.
+ *
+ *  Permission is granted to compile and modify
+ *  this file for non-commercial use.
+ *  See the file LICENSE for details.
+ *
+ */
+
+#ifndef {{model_name}}MODULE_H
+#define {{model_name}}MODULE_H
+
+#include "dynmodule.h"
+#include "slifunction.h"
+
+namespace nest
+{
+  class Network;
+}
+
+// Put your stuff into your own namespace.
+namespace {{model_name}}nest {
+  
+/**
+ * Class defining your model.
+ * @note For each model, you must define one such class, with a unique name.
+ */
+class {{model_name}}Module : public DynModule
+{
+public:
+
+  // Interface functions ------------------------------------------
+  
+  /**
+   * @note The constructor registers the module with the dynamic loader. 
+   *       Initialization proper is performed by the init() method.
+   */
+  {{model_name}}Module();
+  
+  /**
+   * @note The destructor does not do much in modules. Proper "downrigging"
+   *       is the responsibility of the unregister() method.
+   */
+  ~{{model_name}}Module();
+
+  /**
+   * Initialize module by registering models with the network.
+   * @param SLIInterpreter* SLI interpreter
+   * @param nest::Network*  Network with which to register models
+   * @note  Parameter Network is needed for historical compatibility
+   *        only.
+   */
+  void init(SLIInterpreter*, nest::Network*);
+
+  /**
+   * Return the name of your model.
+   */
+  const std::string name(void) const;
+  
+  /**
+   * Return the name of a sli file to execute when {{model_name}}module is loaded.
+   * This mechanism can be used to define SLI commands associated with your
+   * module, in particular, set up type tries for functions you have defined.
+   */
+  const std::string commandstring(void) const;
+     
+public:
+  
+  // Classes implementing your functions -----------------------------
+  
+  /**
+   * Implement a function for a step-pattern-based connection.
+   * @note What this function does is described in the SLI documentation
+   *       in the cpp file.
+   * @note The mangled name indicates this function expects the following
+   *       arguments on the stack (bottom first): vector of int, int, 
+   *       vector of int, int. 
+   * @note You must define a member object in your module class
+   *       of the function class. execute() is later invoked on this
+   *       member.
+   */
+  class StepPatternConnect_Vi_i_Vi_i_lFunction: public SLIFunction
+     {
+     public:
+       void execute(SLIInterpreter *) const;
+     };
+
+     StepPatternConnect_Vi_i_Vi_i_lFunction stepPatternConnect_Vi_i_Vi_i_lFunction;
+  };
+} // namespace {{model_name}}nest
+
+#endif
+
+EOF
+)
+
+    ("module.sli" ()  
+#<<EOF
+/* 
+ * Initialization file for {{model_name}}Module.
+ * Run automatically when {{model_name}}Module is loaded.
+ */
+
+M_DEBUG ({{model_name}}module.sli) (Initializing SLI support for {{model_name}}Module.) message
+
+/StepPatternConnect [ /arraytype /integertype /arraytype /integertype /literaltype ]
+{ 
+  StepPatternConnect_Vi_i_Vi_i_l
+} def
+
+EOF
+)
+    ("testrun.sli" ()  
+#<<EOF
+/dt 0.025 def
+
+ResetKernel
+0
+ << 
+   /resolution  dt 
+ >> SetStatus
+
+({{model_name}}module) Install
+/neuron /{{model_name}} Create def
+/neuron_params << /V_m -65.0 >> def
+neuron neuron_params SetStatus
+
+/stepinput /step_current_generator Create def
+/vlog /voltmeter Create def
+/vlog_parameters << /interval dt /to_file true /to_memory false >> def
+vlog vlog_parameters SetStatus
+
+stepinput neuron Connect
+vlog neuron Connect
+
+/step_current_parameters << /amplitude_times [0.0 1000.0 2850.0] /amplitude_values [0. 18.75 0. ] >> def
+stepinput step_current_parameters SetStatus
+
+3000.0 Simulate
+
+EOF
+)
+
+
+))

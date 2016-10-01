@@ -1,0 +1,2553 @@
+
+;;  Sergio M. Solinas, Lia Forti, Elisabetta Cesana, Jonathan Mapelli,
+;;  Erik De Schutter and Egidio D`Angelo (2008) Computational
+;;  reconstruction of pacemaking and intrinsic electroresponsiveness
+;;  in cerebellar Golgi cells Frontiers in Cellular Neuroscience 2:2
+
+(nemo-model Golgi
+
+  (
+   (input v celsius)
+
+
+   (component (type defaults) 
+      (const V_t = -35)
+      (const celsius = 23)
+      (output celsius V_t)
+      )
+
+
+   (component (type membrane-capacitance)
+  	 (const c = 1)
+	 (output c  ))
+
+
+   (component (type geometry) (name soma)
+         (const L = 27)
+         (const diam = 27)
+	 (output L diam ))
+
+
+   (functor (type post-synaptic-conductance) (name AMPAfun) 
+
+        ( tauA tauB e ) =
+
+        (input (w from event))
+
+        (const tau1 = (if ((tauA / tauB) > .9999) then (0.9999 * tauB) else tauA))
+        (const tau2 = tauB)
+
+	(const tp = ((tau1 * tau2) / (tau2 - tau1) * ln (tau2 / tau1)))
+	(const scale_factor  = (1 / (neg (exp(neg (tp) / tau1)) + exp (neg (tp) / tau2))))
+
+	(transient (A) = (neg (A) / tau1) (onevent (A + (w * scale_factor))) (initial 0))
+	(transient (B) = (neg (B) / tau2) (onevent (B + (w * scale_factor))) (initial 0))
+
+        (g =  (B - A))
+
+        (output g e scale_factor)
+
+      )
+
+   (functor (type decaying-pool) (name cafun) 
+
+      ( d cao cai0 beta) =
+
+      (input (ica from ion-currents))
+
+   	      (const  F       = 96485.3)
+
+   	      (d (ca) =  ((neg (ica) / (2 * F * d)) * 1e4 - (beta * (ca - cai0)))
+   	      	      	 (initial cai0))
+	      
+   	      (output ca cao)
+   	      )
+
+
+   (functor (type decaying-pool) (name ca2fun)
+
+      ( d ca2o ca2i0 beta ) =
+
+      (input (ica2 from ion-currents))
+
+      (const valence  = 2)
+      (const  F       = 96485.3)
+
+      
+      (d (ca2) =  ((neg (ica2) / (2 * F * d)) * 1e4 - (beta * (ca2 - ca2i0)))
+	          (initial ca2i0))
+      
+      (output ca2 ca2o valence)
+      )
+
+   
+   (functor (type ionic-current) (name CaHVAfun ) 
+
+      (	Aalpha_s Kalpha_s V0alpha_s
+	Abeta_s  Kbeta_s  V0beta_s
+        Aalpha_u Kalpha_u V0alpha_u
+        Abeta_u Kbeta_u V0beta_u 
+        gbar ) =
+	      
+      (input 
+       (cai from ion-pools)
+       (cao from ion-pools))
+	      
+      (component (type gate)
+
+		 ;; rate constants
+		 
+		 (Q10 = (pow (3 ((celsius - 20) / 10))))
+		 
+		 ;; rate functions
+		 
+		 (defun alpha_s (v Q10)
+		   (Q10 * Aalpha_s * exp((v - V0alpha_s) / Kalpha_s)))
+		 
+		 (defun beta_s (v Q10)
+		   (Q10 * Abeta_s * exp((v - V0beta_s) / Kbeta_s)))
+		 
+		 (defun alpha_u (v Q10)
+		   (Q10 * Aalpha_u * exp((v - V0alpha_u) / Kalpha_u)))
+		 
+		 (defun beta_u (v Q10)
+		   (Q10 * Abeta_u * exp((v - V0beta_u) / Kbeta_u)))
+
+		 (s_inf = ((alpha_s (v Q10))/(alpha_s (v Q10) + beta_s (v Q10))))
+		 (tau_s = (1 / (alpha_s (v Q10) + beta_s (v Q10)) ))
+
+		 (u_inf = ((alpha_u (v Q10))/(alpha_u (v Q10) + beta_u (v Q10)) ))
+		 (tau_u = (1 / (alpha_u (v Q10) + beta_u (v Q10)) ))
+
+		 (hh-ionic-gate 
+		  (CaHVA  ;; ion name: exported variables will be of the form {ion}_{id}
+		   (initial-m  s_inf)
+		   (initial-h  u_inf)
+		   (m-power    2)
+		   (h-power    1)
+		   (m-inf      s_inf)
+		   (m-tau      tau_s)
+		   (h-inf      u_inf)
+		   (h-tau      tau_u)
+		   ))
+		 
+		 )
+	      
+	      (component (type pore)
+			 (const  g  = gbar)
+			 (output g ))
+	      
+	      (component (type permeating-ion) (name ca)
+			 (const F = 96485.3)
+			 (const R = 8.31342)
+			 (e = ((1e3) * (R * (celsius + 273.15)) / (2 * F) * ln (cao / cai)))
+			 (output e)
+			 )
+	      
+	      ) ;; end CaHVA current
+
+
+   
+   (functor (type ionic-current) (name CaLVAfun ) 
+	      
+      (
+       shift ; screening charge for Ca_o = 2 mM
+       
+       v0_m_inf v0_h_inf k_m_inf k_h_inf
+	
+       C_tau_m A_tau_m v0_tau_m1 v0_tau_m2 k_tau_m1 k_tau_m2
+       
+       C_tau_h A_tau_h v0_tau_h1 v0_tau_h2 k_tau_h1 k_tau_h2
+
+       g
+       
+       ) =
+
+      (input 
+       (ca2i from ion-pools)
+       (ca2o from ion-pools))
+
+      (component (type gate)
+
+			 
+		 ;; rate functions
+		 
+		 (phi_m = (pow (5.0 ((celsius - 24) / 10))))
+		 (phi_h = (pow (3.0 ((celsius - 24) / 10))))
+		 
+		 (m_inf = (1.0 / ( 1 + exp ((v + shift - v0_m_inf) / k_m_inf)) ))
+		 (h_inf = (1.0 / ( 1 + exp ((v + shift - v0_h_inf) / k_h_inf)) ))
+		 
+		 (tau_m = ( (C_tau_m + A_tau_m / ( exp ((v + shift - v0_tau_m1) / k_tau_m1) + 
+						       exp ((v + shift - v0_tau_m2) / k_tau_m2) ) ) / phi_m) )
+		 
+		 (tau_h = ( (C_tau_h + A_tau_h / ( exp ((v + shift - v0_tau_h1 ) / k_tau_h1) + 
+						       exp ((v + shift - v0_tau_h2) / k_tau_h2) ) ) / phi_h) )
+		 
+
+		 (hh-ionic-gate 
+		  (CaLVA  ;; ion name: exported variables will be of the form {ion}_{id}
+		   (initial-m  m_inf)
+		   (initial-h  h_inf)
+		   (m-power    2)
+		   (h-power    1)
+		   (m-inf      m_inf)
+		   (m-tau      tau_m)
+		   (h-inf      h_inf)
+		   (h-tau      tau_h)
+		   ))
+		 )
+      
+      
+      (component (type pore)
+		 (const  gbar  = g)
+		 (output gbar ))
+
+	      
+      (component (type permeating-ion) (name ca2)
+                 (const valence = 2)
+		 (const F = 96485.3)
+		 (const R = 8.31342)
+		 (e = ((1e3) * (R * (celsius + 273.15)) / (2 * F) * ln (ca2o / ca2i)))
+		 (output e valence))
+
+	      
+      ) ;; end CaLVA current
+
+
+      
+   (functor (type ionic-current) (name HCN1fun) 
+            
+            ( Ehalf c rA rB
+              tCs tDs tEs
+              tCf tDf tEf
+              g e
+              ) =
+	      
+   	      (defun r (potential)
+   		((rA * potential) + rB))
+	      
+   	      (defun tau (potential t1 t2 t3)
+   		(exp (((t1 * potential) - t2) * t3)))
+	      
+   	      (defun o_inf (potential Ehalf c)
+   		(1 / (1 + exp ((potential - Ehalf) * c))))
+              
+
+   	      (component (type gate)
+
+   			 ;; rate constants
+	
+
+                         (o_slow_inf = ((1 - r (v)) * o_inf (v Ehalf c)))
+			
+                         (tau_s =  (tau (v tCs tDs tEs)) )
+
+                         (d (o_slow) = ((o_slow_inf - o_slow) / tau_s) 
+                            (initial o_slow_inf))
+                         
+                         (output o_slow)
+
+   			 )
+	      
+   	      (component (type gate)
+                         
+
+
+                         (o_fast_inf = (r (v) * o_inf (v Ehalf c)))
+			
+                         (tau_f =  (tau (v tCf tDf tEf)) )
+
+                         (d (o_fast) = ((o_fast_inf - o_fast) / tau_f) 
+                            (initial o_fast_inf))
+                         
+                         (output o_fast)
+
+   			 )
+	      
+   	      (component (type pore)
+   			 (const  gbar  = g)
+   			 (output gbar))
+	      
+   	      (component (type permeating-ion) (name non-specific)
+   			 (const erev = e)
+   			 (output erev ))
+	      
+   	      ) 
+
+
+      
+   (functor (type ionic-current) (name HCN2fun)
+
+            ( Ehalf c rA rB tCs tDs tEs tCf tDf tEf
+             ) =
+                         
+
+   	      (defun r (potential r1 r2)
+   		(if (potential >= -64.70) 
+   		    then  0.0
+   		    else (if (potential <= -108.70) 
+   			     then 1.0
+   			     else (r1 * potential) + r2)))
+
+   	      (defun o_inf (potential Ehalf c)
+   		(1 / (1 + exp((potential - Ehalf) * c))))
+              
+   	      (component (type gate)
+                         
+                         (defun tau_slow (potential t1 t2 t3)
+                           (exp (t3 * ((t1 * potential) - t2))))
+
+                         (o_slow_inf = ((1 - r (v rA rB)) * o_inf (v Ehalf c)))
+
+                         (tau_s =  (tau_slow(v tCs tDs tEs)))
+
+                         (d (o_slow) = ((o_slow_inf - o_slow) / tau_s) 
+                            (initial o_slow_inf))
+
+                         (output o_slow)
+
+   			 )
+	      
+   	      (component (type gate)
+                         
+                         
+                         (defun tau_fast (potential t1 t2 t3)
+                           (exp (t3 * ((t1 * potential) - t2))))
+
+                         (o_fast_inf = (r (v rA rB) * o_inf (v Ehalf c)))
+
+                         (tau_f =  (tau_fast(v tCf tDf tEf)))
+
+                         (d (o_fast) = ((o_fast_inf - o_fast) / tau_f) 
+                            (initial o_fast_inf))
+
+                         (output o_fast)
+
+   			 )
+	      
+   	      (component (type pore)
+   			 (const  gbar  = g)
+   			 (output gbar))
+	      
+   	      (component (type permeating-ion) (name non-specific)
+   			 (const erev = e)
+   			 (output erev ))
+	      
+   	      ) ;; end HCN2 current
+
+
+   (functor (type ionic-current) (name KAfun )
+
+            (
+             Aalpha_a Kalpha_a V0alpha_a Abeta_a Kbeta_a V0beta_a
+             Aalpha_b Kalpha_b V0alpha_b Abeta_b Kbeta_b V0beta_b
+             V0_ainf K_ainf V0_binf K_binf g e
+             ) =
+
+	      (defun sigm (x y) (1 / (exp (x / y) + 1)))
+	      
+	      (component (type gate)
+			 
+			 
+			 (Q10 = (pow (3 ((celsius - 25.5) / 10))))
+			 
+			 ;; rate functions
+
+			 (defun alpha_a (v Q10)
+			   (Q10 * Aalpha_a * sigm((v - V0alpha_a) Kalpha_a)))
+
+			 (defun beta_a (v Q10)
+			   (Q10 * (Abeta_a / exp((v - V0beta_a) / Kbeta_a))))
+
+			 (defun alpha_b (v Q10)
+			   (Q10 * Aalpha_b * sigm((v - V0alpha_b) Kalpha_b)))
+
+			 (defun beta_b (v Q10)
+			   (Q10 * Abeta_b * sigm((v - V0beta_b) Kbeta_b)))
+
+
+			 (a_inf = (1 / (1 + exp ((v - V0_ainf) / K_ainf)))) 
+			 (tau_a = (1 / (alpha_a (v Q10) + beta_a (v Q10)) ))
+			 (b_inf = (1 / (1 + exp ((v - V0_binf) / K_binf))))
+			 (tau_b = (1 / (alpha_b (v Q10) + beta_b (v Q10)) ))
+
+			 (hh-ionic-gate 
+			  (KA  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  (a_inf))
+			   (initial-h  (b_inf))
+			   (m-power    3)
+			   (h-power    1)
+			   (m-inf      a_inf)
+			   (m-tau      tau_a)
+			   (h-inf      b_inf)
+			   (h-tau      tau_b)
+			   ))
+
+			 )
+
+	      	      
+	      (component (type pore)
+			 (const  gbar  = g)
+			 (output gbar ))
+
+	      
+	      (component (type permeating-ion) (name k)
+			 (const erev = e)
+			 (output erev ))
+	      
+	      ) ;; end KA current
+
+
+
+   (functor (type ionic-current) (name KCafun )
+
+            (
+             Aalpha_c Balpha_c Kalpha_c Abeta_c Bbeta_c Kbeta_c
+             g e
+             ) =
+
+               (input
+                (cai from ion-pools))
+	      
+               (component (type gate)
+
+		 ;; rate constants
+		 (Q10 = (pow (3 ((celsius - 30) / 10))))
+		 
+		 ;; rate functions
+		 (defun alpha_c (v cai Q10)
+		   (Q10 * Aalpha_c / (1 + (Balpha_c * exp(v / Kalpha_c) / cai)))) 
+		 
+		 (defun beta_c (v cai Q10)
+		   (Q10 * Abeta_c / (1 + (cai / (Bbeta_c * exp (v / Kbeta_c))) )))
+             
+                 (c_inf = ((alpha_c (v cai Q10)) / (alpha_c (v cai Q10) + beta_c (v cai Q10)) ))
+                 (tau_c = (1 / (alpha_c (v cai Q10) + beta_c (v cai Q10)) ))
+
+		 (hh-ionic-gate 
+		  (KCa  ;; ion name: exported variables will be of the form {ion}_{id}
+		   (initial-m  c_inf)
+		   (m-power    1)
+		   (h-power    0)
+                   (m-inf      c_inf) 
+                   (m-tau      tau_c)
+		   ))
+		 
+		 )
+      
+               (component (type pore)
+                          (const  gbar  = g)
+                          (output gbar ))
+               
+               
+               (component (type permeating-ion) (name k)
+                          (const erev = e)
+                          (output erev ))
+               
+               (component (type modulating-ion) (name ca) )
+               
+               ) ;; end KCa current
+   
+
+   (functor (type ionic-current) (name KMfun )
+
+            (
+             Aalpha_n Kalpha_n V0alpha_n Abeta_n
+             Kbeta_n V0beta_n V0_ninf B_ninf
+             g e
+             ) =
+	      
+               (component (type gate)
+
+			 ;; rate constants
+			 
+			 (Q10 = (pow (3 ((celsius - 22) / 10))))
+			 
+			 ;; rate equations
+			 (defun alpha_n (v Q10)
+			   (Q10 * Aalpha_n * exp((v - V0alpha_n) / Kalpha_n) ))
+
+			 (defun beta_n (v Q10)
+			   (Q10 * Abeta_n * exp((v - V0beta_n) / Kbeta_n) ))
+
+			 (hh-ionic-gate 
+			  (KM  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  ((1 / (1 + exp((neg (v - V0_ninf)) / B_ninf)))))
+			   (m-power    1)
+			   (h-power    0)
+			   (m-tau      ((1 / (alpha_n(v Q10) + beta_n (v Q10)) )))
+			   (m-inf      ((1 / (1 + exp((neg (v - V0_ninf)) / B_ninf)))))
+			   ))
+			 )
+	      
+	      (component (type pore)
+			 (const  gbar  = g)
+			 (output gbar ))
+	      
+	      (component (type permeating-ion) (name k)
+			 (const erev = e)
+			 (output erev ))
+	      
+	      ) ;; end KM current
+
+
+   (functor (type ionic-current) (name KVfun )
+
+            (
+             Aalpha_n Kalpha_n V0alpha_n Abeta_n
+             Kbeta_n V0beta_n g e
+             ) =
+	      
+	      (defun linoid (x y) 
+		(if ((abs (x / y)) < 1e-6) 
+		    then (y * (1 - ((x / y) / 2)))
+		    else (x / (exp (x / y) - 1))
+		    ))
+
+
+	      (component (type gate)
+
+
+			 ;; rate functions
+			 (Q10 = (pow (3 ((celsius - 6.3) / 10))))
+
+			 (defun alpha_n (v Q10) 
+			   (Q10 * Aalpha_n * linoid ((v - V0alpha_n) Kalpha_n)))
+
+			 (defun beta_n (v Q10) 
+			   (Q10 * Abeta_n * exp((v - V0beta_n) / Kbeta_n) ))
+
+                         (n_inf = ((alpha_n (v Q10)) / (alpha_n (v Q10) + beta_n (v Q10)) ))
+                         (tau_n = (1 / (alpha_n (v Q10) + beta_n (v Q10)) ))
+
+			 (hh-ionic-gate 
+			  (KV  ;; ion name: exported variables will be of the form {ion}_{id}
+			   (initial-m  n_inf)
+			   (m-power    4)
+			   (h-power    0)
+			   (m-inf     (n_inf))
+			   (m-tau     (tau_n))
+			   ))
+			 )
+
+	      (component (type pore)
+			 (const  gbar  = g)
+			 (output gbar ))
+	      
+	      (component (type permeating-ion) (name k)
+			 (const erev = e)
+			 (output erev ))
+	      
+	      ) ;; end KV current
+	      
+
+   
+   (functor (type ionic-current) (name SK2fun )
+
+            (
+             diff ;; Diffusion factor
+		 
+             ;; rates ca-independent
+             invc1 invc2 invc3
+             invo1 invo2 diro1 diro2
+
+             ;; rates ca-dependent
+             dirc2 dirc3 dirc4
+             ) =
+               
+               (input
+                (cai from ion-pools))
+               
+               (component (type gate)
+                          
+                          (Q10 = (pow (3 ((celsius - 23) / 10))))
+                          
+                          (invc1_t = (invc1 * Q10  ))
+                          (invc2_t = (invc2 * Q10 ))
+                          (invc3_t = (invc3 * Q10 ))
+                          (invo1_t = (invo1 * Q10 ))
+                          (invo2_t = (invo2 * Q10 ))
+                          (diro1_t = (diro1 * Q10 ))
+                          (diro2_t = (diro2 * Q10 ))
+                          (dirc2_t = (dirc2 * Q10 ))
+                          (dirc3_t = (dirc3 * Q10 ))
+                          (dirc4_t = (dirc4 * Q10 ))
+                          
+                          
+                          (dirc2_t_ca = (dirc2_t * (cai / diff) ))
+                          (dirc3_t_ca = (dirc3_t * (cai / diff) ))
+                          (dirc4_t_ca = (dirc4_t * (cai / diff) ))
+                          
+                          (reaction
+                           (SK2_z
+                            (transitions 
+                             (<-> c1 c2 dirc2_t_ca invc1_t)
+                             (<-> c2 c3 dirc3_t_ca invc2_t) 
+                             (<-> c3 c4 dirc4_t_ca invc3_t) 
+                             (<-> c3 o1 diro1_t invo1_t) 
+                             (<-> c4 o2 diro2_t invo2_t) 
+                             )
+                            (conserve  ((1 = (c1 + c2 + c3 + c4 + o2 + o1))))
+                            (open o1 o2) 
+                            (power 1)))
+                          
+                          (output SK2_z)
+                          
+                          )
+               
+               (component (type pore)
+                          (const  gbar  = g)
+                          (output gbar ))
+               
+               
+               (component (type permeating-ion) (name k)
+                          (const erev = e)
+                          (output erev ))
+               
+               (component (type modulating-ion) (name ca) )
+               
+               ) ;; end SK2 current
+
+   (functor (type ionic-current) (name Nafun ) 
+
+            (
+             Aalpha_u Kalpha_u V0alpha_u
+             Abeta_u Kbeta_u V0beta_u
+
+             Aalpha_v Kalpha_v V0alpha_v
+             Abeta_v Kbeta_v V0beta_v
+
+             g e
+             ) =
+	      
+	      
+	      (defun linoid (x y) 
+		(if ((abs (x / y)) < 1e-6) 
+		    then (y * (1 - ((x / y) / 2)))
+		    else (x / (1 - exp (x / y) ))
+		    ))
+	      
+	      (component (type gate)
+	      
+			 (Q10 = (pow (3 ((celsius - 20) / 10))))
+
+   			 ;; rate functions
+   			 (defun alpha_u (v Q10)	
+   			   (Q10 * Aalpha_u * linoid((v - V0alpha_u) Kalpha_u) ))
+
+   			 (defun beta_u (v Q10)
+   			   (Q10 * Abeta_u * exp((v - V0beta_u) / Kbeta_u) ))
+
+   			 (defun alpha_v (v Q10)
+   			   (Q10 * Aalpha_v * exp((v - V0alpha_v) / Kalpha_v) ))	
+				
+   			 (defun beta_v (v Q10)
+   			   (Q10 * Abeta_v / (1 + exp((v - V0beta_v) / Kbeta_v) )))
+
+			 (u_inf = ((alpha_u (v Q10)) / (alpha_u (v Q10) + beta_u (v Q10)) ))
+			 (tau_u = (1 / (alpha_u (v Q10) + beta_u (v Q10))))
+
+			 (v_inf = ((alpha_v (v Q10)) / (alpha_v (v Q10) + beta_v (v Q10)) ))
+			 (tau_v = (1 / (alpha_v (v Q10) + beta_v (v Q10)) ))
+			 
+   			 (hh-ionic-gate 
+   			  (Na  ;; ion name: exported variables will be of the form {ion}_{id}
+   			   (initial-m  (u_inf))
+   			   (initial-h  (v_inf))
+   			   (m-power    3)
+   			   (h-power    1)
+  			   (m-inf     (u_inf))
+   			   (m-tau     (tau_u))
+   			   (h-inf     (v_inf))
+   			   (h-tau     (tau_v))
+   			   ))
+			 
+   			 )
+	      
+   	      (component (type pore)
+   			 (const  gbar  = g)
+   			 (output gbar ))
+
+	      
+   	      (component (type permeating-ion) (name na)
+   			 (const erev = e)
+   			 (output erev ))
+	      
+   	      ) ;; end Na current
+
+
+   
+   (functor (type ionic-current) (name NaPfun )
+
+            (
+             Aalpha_m Kalpha_m V0alpha_m
+             Abeta_m Kbeta_m V0beta_m V0_minf B_minf
+             g e
+             ) =
+	      
+   	      (defun linoid (x y) 
+   		(if ((abs (x / y)) < 1e-6) 
+   		    then (y * (1 - ((x / y) / 2)))
+   		    else (x / (exp (x / y) - 1))
+   		    ))
+
+
+   	      (component (type gate)
+
+   			 ( Q10 = (pow (3 ((celsius - 30) / 10))))
+
+   			 ;; rate functions
+
+   			 (defun alpha_m (v Q10) 
+   			   (Q10 * Aalpha_m * linoid( ( v - V0alpha_m ) Kalpha_m) ))
+
+   			 (defun beta_m (v Q10) 
+   			   (Q10 * Abeta_m * linoid( ( v - V0beta_m )  Kbeta_m ) ))
+
+   			 (hh-ionic-gate 
+   			  (NaP  ;; ion name: exported variables will be of the form {ion}_{id}
+   			   (initial-m  ((1 / (1 + exp ((neg (v - V0_minf)) / B_minf)))))
+   			   (m-power    1)
+   			   (h-power    0)
+   			   (m-inf     ((1 / (1 + exp ((neg (v - V0_minf)) / B_minf)))))
+   			   (m-tau     ((5 / (alpha_m (v Q10) + beta_m (v Q10)) )))
+   			   ))
+   			 )
+
+   	      (component (type pore)
+   			 (const  gbar  = g)
+   			 (output gbar ))
+
+   	      (component (type permeating-ion) (name na)
+   			 (const erev = e)
+   			 (output erev ))
+	      
+   	      ) ;; end NaP current
+
+
+   
+   (functor (type ionic-current) (name NaRfun )
+
+            (
+             Aalpha_s V0alpha_s Kalpha_s Shiftalpha_s
+             Abeta_s V0beta_s Kbeta_s Shiftbeta_s
+             Aalpha_f V0alpha_f Kalpha_f
+             Abeta_f V0beta_f Kbeta_f
+             g e
+             ) =
+	      
+               (component (type gate)
+                          
+                          (Q10 = (pow (3 ((celsius - 20) / 10))))
+                          
+                          ;; rate functions
+                          (defun alpha_s (v Q10) 
+                            (Q10 * (Shiftalpha_s + ((Aalpha_s * ((v + V0alpha_s) )) / (exp ((v + V0alpha_s) / Kalpha_s) - 1)))))
+
+   			 (defun beta_s (v Q10) 
+                           (let ((x1 ((v + V0beta_s) / Kbeta_s)))
+   			     (Q10 * (Shiftbeta_s + Abeta_s * ((v + V0beta_s) / (exp((if (x1 > 200) then 200 else x1)) - 1))))))
+
+   			 (defun alpha_f (v Q10) 
+   			   (Q10 * Aalpha_f * exp( ( v - V0alpha_f ) / Kalpha_f)))
+
+   			 (defun beta_f (v Q10) 
+   			   (Q10 * Abeta_f * exp( ( v - V0beta_f ) / Kbeta_f )  ))
+
+			 (s_inf = ((alpha_s (v Q10)) / (alpha_s (v Q10) + beta_s (v Q10)) ))
+			 (tau_s = (1 / (alpha_s (v Q10) + beta_s (v Q10)) ))
+			 (f_inf = ((alpha_f (v Q10)) / (alpha_f (v Q10) + beta_f (v Q10)) ))
+			 (tau_f = (1 / (alpha_f (v Q10) + beta_f (v Q10)) ))
+
+   			 (hh-ionic-gate 
+   			  (NaR  ;; ion name: exported variables will be of the form {ion}_{id}
+   			   (initial-m  (s_inf))
+   			   (initial-h  (f_inf))
+   			   (m-power    1)
+   			   (h-power    1)
+   			   (m-inf     (s_inf))
+   			   (m-tau     (tau_s))
+   			   (h-inf     (f_inf))
+   			   (h-tau     (tau_f))
+
+   			   ))
+   			 )
+
+   	      (component (type pore)
+   			 (const  gbar  = g)
+   			 (output gbar ))
+
+   	      (component (type permeating-ion) (name na)
+   			 (const erev = e)
+   			 (output erev ))
+	      
+   	      ) ;; end NaR current
+
+
+      
+   (functor (type ionic-current) (name Lkgfun) 
+
+            (g e) =
+	      
+            (component (type pore)
+                       (const  gbar  = g)
+                       (output gbar))
+            
+            (component (type permeating-ion) (name non-specific)
+                       (const erev = e)
+                       (output erev ))
+            
+            ) ;; end leak current
+
+
+   (component (name ca) =
+
+      cafun (
+   	      (const  d       = .2)
+   	      (const  cao     = 2.)
+   	      (const  cai0    = 50e-6)
+   	      (const  beta    = 1.3)
+            )
+      )
+
+
+   (component (name ca2) =
+
+      ca2fun (
+              (const  d       = .2)
+              (const  ca2o     = 2.)
+              (const  ca2i0    = 50e-6)
+              (const  beta    = 1.3)
+              ))
+
+
+   (component (name AMPA) =
+
+     AMPAfun (
+
+        (const tauA = 0.03) ;; rise time
+	(const tauB = 0.5) ;; decay time
+
+        (const  e = 0)
+
+      ))
+
+
+   
+   (component (name CaHVA ) = 
+      
+      CaHVAfun (
+		 
+		 (const Aalpha_s  = 0.04944)
+		 (const Kalpha_s  =  15.87301587302)
+		 (const V0alpha_s = -29.06)
+		 
+		 (const Abeta_s  = 0.08298)
+		 (const Kbeta_s  =  -25.641)
+		 (const V0beta_s = -18.66)
+		 
+		 (const Aalpha_u  = 0.0013)
+		 (const Kalpha_u  =  -18.183)
+		 (const V0alpha_u = -48)
+		 
+		 (const Abeta_u = 0.0013)
+		 (const Kbeta_u = 83.33)
+		 (const V0beta_u = -48)
+		 
+                 (const  gbar  = 460e-6)
+                 )
+	      
+	      ) ;; end CaHVA current
+
+
+   
+   (component (name CaLVA ) =
+
+      CaLVAfun (
+
+		 (const shift   = 2) ; screening charge for Ca_o = 2 mM
+		 
+		 (const v0_m_inf = -50)
+		 (const v0_h_inf = -78)
+		 (const k_m_inf  = -7.4)
+		 (const k_h_inf  = 5.0)
+	
+		 (const C_tau_m   = 3)
+		 (const A_tau_m   = 1.0)
+		 (const v0_tau_m1 = -25)
+		 (const v0_tau_m2 = -100)
+		 (const k_tau_m1  = 10)
+		 (const k_tau_m2 = -15)
+		 
+		 (const C_tau_h   = 85)
+		 (const A_tau_h   = 1.0)
+		 (const v0_tau_h1 = -46)
+		 (const v0_tau_h2 = -405)
+		 (const k_tau_h1  = 4)
+		 (const k_tau_h2  = -50)
+
+                 (const g = 2.5e-4)
+
+                 ))
+
+   
+      
+   (component (name HCN1)  =
+              
+              HCN1fun (
+   
+                      (const Ehalf = -72.49)
+                      (const c = 0.11305)
+	      
+                      (const rA = 0.002096)
+                      (const rB = 0.97596)
+                      
+                      (const tCs = 0.01451)
+                      (const tDs = -4.056)
+                      (const tEs = 2.302585092)
+
+                      (const tCf = 0.01371)
+                      (const tDf = -3.368)
+                      (const tEf = 2.302585092)
+
+                      (const  g  = 5e-5)
+
+                      (const e = -20)
+                      )
+	      
+   	      ) ;; end HCN1 current
+
+
+      
+   (component (name HCN2) = 
+
+              HCN2fun (
+                         
+                       (const Ehalf = -81.95)
+                       (const c = 0.1661)
+	      
+                       ;; rate constants
+                       
+                       (const rA = -0.0227)
+                       (const rB = -1.4694)
+                       
+                       (const tCs = 0.0152)
+                       (const tDs = -5.2944)
+                       (const tEs = 2.3026)
+                       
+                       (const tCf = 0.0269)
+                       (const tDf = -5.6111)
+                       (const tEf = 2.3026)
+                       
+                       (const  g  = 8e-5)
+
+                       (const e = -20)
+                       )
+
+   	      ) ;; end HCN2 current
+              
+
+   (component (name KA ) =
+              
+              KAfun (
+			 (const Aalpha_a  = 0.8147)
+			 (const Kalpha_a  = -23.32708)
+			 (const V0alpha_a = -9.17203)
+			 (const Abeta_a   = 0.1655)
+			 (const Kbeta_a   = 19.47175)
+			 (const V0beta_a  = -18.27914)
+
+			 (const Aalpha_b  = 0.0368)
+			 (const Kalpha_b  = 12.8433)
+			 (const V0alpha_b = -111.33209)
+			 (const Abeta_b   = 0.0345)
+			 (const Kbeta_b   = -8.90123)
+			 (const V0beta_b  = -49.9537)
+
+			 (const V0_ainf = -38)
+			 (const  K_ainf = -17)
+
+			 (const V0_binf   = -78.8)
+			 (const K_binf    = 8.4)
+
+			 (const  g  = 0.008)
+
+			 (const e = -84.69)
+                         )
+
+	      ) ;; end KA current
+
+   
+
+   (component (name KCa ) = 
+
+              KCafun (
+		 
+                      (const Aalpha_c = 7)
+                      (const Balpha_c = 1.5e-3)
+                      
+                      (const Kalpha_c =  -11.765)
+                      
+                      (const Abeta_c = 1.)
+                      (const Bbeta_c = 0.15e-3)
+                      
+                      (const Kbeta_c = -11.765)
+
+                      (const  g  = 0.003)
+
+                      (const e = -84.69)
+                      )
+      ) ;; end KCa current
+   
+
+
+   (component (name KM ) =
+
+              KMfun (
+                     (const Aalpha_n = 0.0033)
+
+                     (const Kalpha_n  = 40)
+                     (const V0alpha_n = -30)
+                     (const Abeta_n   = 0.0033)
+                     
+                     (const Kbeta_n  = -20)
+                     (const V0beta_n = -30)
+                     (const V0_ninf  = -35)
+                     (const   B_ninf = 6)
+
+                     (const  g  = 0.001)
+
+                     (const e = -84.69)
+                     )
+	      
+	      ) ;; end KM current
+
+   
+
+   (component (name KV ) =
+
+              KVfun (
+	      
+                     (const Aalpha_n = -0.01)
+                     (const Kalpha_n = -10)
+                     (const V0alpha_n = -26)
+                     (const Abeta_n = 0.125)
+                     
+                     (const Kbeta_n = -80)
+                     (const V0beta_n = -36)
+                     
+                     (const  g  = 0.032)
+                     
+                     (const e = -84.69)
+                     )
+	      
+	      ) ;; end KV current
+	      
+
+   
+   (component (name SK2 ) =
+
+              SK2fun (
+                      
+                      (const diff = 3) ;; Diffusion factor
+		 
+                      ;; rates ca-independent
+                      (const invc1 = 80e-3)
+                      (const invc2 = 80e-3)
+                      (const invc3 = 200e-3)
+                      
+                      (const invo1 = 1)
+                      (const invo2 = 100e-3)
+                      (const diro1 = 160e-3)
+                      (const diro2 = 1.2)
+                      
+                      ;; rates ca-dependent
+                      (const dirc2 = 200)
+                      (const dirc3 = 160)
+                      (const dirc4 = 80)
+                      
+                      (const g = 0.038)
+                      (const e = -84.69)
+                      )
+
+              ) ;; end SK2 current
+
+   
+   (component (name Na ) =
+
+              Nafun (
+                     
+                     (const Aalpha_u  = 0.3)
+                     (const Kalpha_u  = -10)
+                     (const V0alpha_u = -25)
+                     
+                     (const Abeta_u  = 12)
+                     (const Kbeta_u  = -18.182)
+                     (const V0beta_u = -50)
+                     
+                     (const Aalpha_v  = 0.21)
+                     (const Kalpha_v  = -3.333)
+                     (const V0alpha_v = -50)
+                     
+                     (const Abeta_v  = 3)
+                     (const Kbeta_v  = -5)
+                     (const V0beta_v = -17)
+
+                     (const g  = 0.048)
+                     (const e = 87.39)
+                     )
+	      
+   	      ) ;; end Na current
+
+
+   
+   (component (name NaP ) = NaPfun
+
+              (
+               (const Aalpha_m  = -0.91)
+               (const Kalpha_m  = -5)
+               (const V0alpha_m = -40)
+               (const Abeta_m	  = 0.62)
+               (const Kbeta_m   = 5)
+               (const V0beta_m  = -40)
+               (const V0_minf   = -43)
+               (const B_minf    = 5)
+
+               (const g = 0.00019)
+
+               (const e = 87.39)
+               )
+              ) ;; end NaP current
+
+   
+   (component (name NaR ) = 
+              
+              NaRfun (
+                      (const Aalpha_s     = -0.00493)
+                      (const V0alpha_s    = -4.48754)
+                      (const Kalpha_s     = -6.81881)
+                      (const Shiftalpha_s = 0.00008)
+                      
+                      (const Abeta_s     = 0.01558)
+                      (const V0beta_s    = 43.97494)
+                      (const Kbeta_s     =  0.10818)
+                      (const Shiftbeta_s = 0.04752)
+                      
+                      (const Aalpha_f  = 0.31836)
+                      (const V0alpha_f = -80)
+                      (const Kalpha_f  = -62.52621)
+                      
+                      (const Abeta_f  = 0.01014)
+                      (const V0beta_f = -83.3332)
+                      (const Kbeta_f  = 16.05379)
+
+                      (const g  = 0.0017)
+
+                      (const e = 87.39)
+                      )
+              ) ;; end Nar current
+              
+      
+   (component (name Lkg) = 
+
+              Lkgfun (
+                      (const g  = (21e-6))
+                      (const e = -55)
+                      )
+              ) ;; end leak current
+
+
+   )
+
+   ;; Following are templates for various driver scripts used to run this model
+   (
+    ("template.hoc" ()  
+#<<EOF
+/*******Cerebellar Golgi Cell Model **********
+
+Developers:    Sergio Solinas & Egidio D'Angelo
+Code contributors:  Thierry Neius, Shyam Diwakar, Lia Forti
+Data Analysis: Sergio Solinas
+
+Work Progress: April 2004 - May 2007
+
+Developed At:  Università Degli Studi Di Pavia
+	       Dipartimento Di Scienze Fisiologiche
+	       Pavia - Italia
+	       
+Model Published in: 
+             Sergio M. Solinas, Lia Forti, Elisabetta Cesana, 
+             Jonathan Mapelli, Erik De Schutter and Egidio D`Angelo (2008)
+             Computational reconstruction of pacemaking and intrinsic 
+             electroresponsiveness in cerebellar golgi cells
+             Frontiers in Cellular Neuroscience 2:2
+
+
+********************************************/
+
+// In this configuration the ion channels 
+// were not corrected for the Liquid Junction potential.
+// The ion reversal potential were corrected in agreement
+// with the voltage shift.
+// See Table 1 Solinas et al. 2008 Frontiers Neurosci 2:2
+
+begintemplate GoC
+public soma,axon,elec,seal,dend
+public SpikeTrain, RT_Vm, EL_Vm
+
+create soma
+create axon
+create elec,seal
+create dend[3]
+
+objref SpikeTrain, netcon, nil
+objref RT_Vm, EL_Vm
+
+proc init() {
+
+    RT_Vm = new Vector()
+    EL_Vm = new Vector()
+    create soma
+    soma {
+	nseg = 1
+	diam = 27 // 22 pF Dieudonne98
+	L = 27
+	Ra = 100 // From Roth&Hausser2000
+	celsius = 23
+	
+	insert Golgi_Lkg
+	
+	insert Golgi_Na
+	insert Golgi_NaR
+	insert Golgi_NaP
+	
+	insert Golgi_CaHVA
+	insert Golgi_CaLVA
+		
+	insert Golgi_KV
+	insert Golgi_KM
+	insert Golgi_KA
+
+	insert Golgi_KCa
+	insert Golgi_SK2
+ 	
+        insert Golgi_HCN1
+        insert Golgi_HCN2
+
+	insert Golgi_ca
+	insert Golgi_ca2
+	
+	cai0_ca_ion = 50e-6
+	ca2i0_ca2_ion = cai0_ca_ion
+	
+	cai0_Golgi_Ca = cai0_ca_ion
+	ca2i0_Golgi_Ca2 = cai0_ca_ion
+	
+	cai = cai0_ca_ion
+	ca2i = cai
+	ca2o = cao
+	
+	ena =  87.39
+	ek  = -84.69
+
+	SpikeTrain = new Vector()
+	netcon = new NetCon(&v(0.5),nil)
+	netcon.threshold=-20
+	netcon.record(SpikeTrain)
+	
+	RT_Vm.record(&v(0.5))
+    }
+    
+    create dend[3]
+    for i=0,2 {
+	dend[i] {
+	    nseg = 10
+	    diam = 3
+	    L = 113
+	    Ra = 100
+	    celsius = 23
+	    
+	    insert Golgi_Lkg
+	}
+	connect dend[i](0), soma(1)	
+    }
+    
+    
+    create axon
+    axon {
+	nseg = 100
+	diam = 2.4 // gives 90 pF to get to the 145 pF Forti06
+	L = 1200
+	Ra = 100
+	celsius = 23
+	
+	insert Golgi_Lkg
+    }
+    
+    connect axon(0), soma(0)
+    
+    create elec,seal
+    elec {
+	nseg = 1
+	diam = 3
+	L = 1000
+	Ra = 36
+	cm = 0.0015
+	celsius = 23
+	EL_Vm.record(&v(0.5))
+
+    }
+        
+    seal {
+	nseg = 1
+	diam = 3
+	L = 1
+	Ra = 1
+	cm = 0.0001
+	celsius = 23
+	
+    }
+       
+    connect seal(1), soma(1)
+    connect elec(1), seal(0)
+
+}
+
+		    
+endtemplate GoC
+EOF
+)
+    ("reduced_template.hoc" ()  
+#<<EOF
+/*******Cerebellar Golgi Cell Model **********
+
+Reduced single-compartment cerebellar Golgi cell model
+
+Developers:    Sergio Solinas & Egidio D'Angelo
+Code contributors:  Thierry Neius, Shyam Diwakar, Lia Forti
+Data Analysis: Sergio Solinas
+
+Work Progress: April 2004 - May 2007
+
+Developed At:  Università Degli Studi Di Pavia
+	       Dipartimento Di Scienze Fisiologiche
+	       Pavia - Italia
+	       
+Model Published in: 
+             Sergio M. Solinas, Lia Forti, Elisabetta Cesana, 
+             Jonathan Mapelli, Erik De Schutter and Egidio D`Angelo (2008)
+             Computational reconstruction of pacemaking and intrinsic 
+             electroresponsiveness in cerebellar golgi cells
+             Frontiers in Cellular Neuroscience 2:2
+
+
+********************************************/
+
+// In this configuration the ion channels 
+// were not corrected for the Liquid Junction potential.
+// The ion reversal potential were corrected in agreement
+// with the voltage shift.
+// See Table 1 Solinas et al. 2008 Frontiers Neurosci 2:2
+
+begintemplate GoC
+public soma,axon,elec,seal,dend
+public SpikeTrain, RT_Vm, EL_Vm
+
+create soma
+
+objref SpikeTrain, netcon, nil
+objref RT_Vm, EL_Vm
+
+proc init() {
+
+    RT_Vm = new Vector()
+    EL_Vm = new Vector()
+    create soma
+    soma {
+	nseg = 1
+	diam = 27 // 22 pF Dieudonne98
+	L = 27
+	Ra = 100 // From Roth&Hausser2000
+	celsius = 23
+	
+	insert Golgi_Lkg
+	
+	insert Golgi_Na
+	insert Golgi_NaR
+	insert Golgi_NaP
+	
+	insert Golgi_CaHVA
+	insert Golgi_CaLVA
+		
+	insert Golgi_KV
+	insert Golgi_KM
+	insert Golgi_KA
+
+	insert Golgi_KCa
+	insert Golgi_SK2
+ 	
+        insert Golgi_HCN1
+        insert Golgi_HCN2
+
+	insert Golgi_ca
+	insert Golgi_ca2
+	
+	cai0_ca_ion = 50e-6
+	ca2i0_ca2_ion = cai0_ca_ion
+	
+	cai0_Golgi_Ca = cai0_ca_ion
+	ca2i0_Golgi_Ca2 = cai0_ca_ion
+	
+	cai = cai0_ca_ion
+	ca2i = cai
+	ca2o = cao
+	
+	ena =  87.39
+	ek  = -84.69
+
+	SpikeTrain = new Vector()
+	netcon = new NetCon(&v(0.5),nil)
+	netcon.threshold=-20
+	netcon.record(SpikeTrain)
+	
+	RT_Vm.record(&v(0.5))
+    }
+}
+
+		    
+endtemplate GoC
+EOF
+)
+
+    ("protocol.hoc" ()  
+#<<EOF
+load_file("nrngui.hoc")
+load_file("Golgi_protocol.ses")
+
+// Load the Golgi cell template
+xopen("Golgi_template.hoc")
+objref goc
+goc = new GoC()
+
+
+prelength = 1000
+mainlength = 6000
+
+
+//**********************************************************************
+proc simulate() { local preDT, mainDT, logsize  localobj logfile, tlog, Vlog, iklog, inalog, icalog, ica2log
+    
+    mainDT = 0.025
+    preDT = 0.025
+    
+    dt = preDT
+    tstop = prelength
+    run()
+    
+    
+    if ( stoprun == 1) return
+    
+    dt = mainDT
+    continuerun(prelength + mainlength)
+    if ( stoprun == 1) return
+    
+    logfile=$o1
+    tlog=$o2
+    Vlog=$o3
+    iklog=$o4
+    inalog=$o5
+    icalog=$o6
+    ica2log=$o7
+    
+    logsize = tlog.size()
+    
+    for i=0,tlog.size()-1 {
+	logfile.printf("%g %g %g %g %g\n", tlog.x[i], Vlog.x[i], iklog.x[i], inalog.x[i], icalog.x[i], ica2log.x[i])
+    }
+
+}
+
+
+//*************User-Interface*******************************************
+
+nrnsecmenu(0.5, 1)
+
+xpanel("Spontaneous firing")
+xvalue("Time for Initialization", "prelength")
+xvalue("Main duration", "mainlength")
+
+xvalue("dt", "dt")
+xvalue("t", "t")
+xlabel("")
+xbutton("Start", "simulate()")
+xbutton("Stop", "stoprun = 1")
+xpanel()
+
+vec_sizes = (prelength+mainlength)/dt + 1	// recorded traces are all this size
+
+
+objref  iklog
+iklog = new Vector(vec_sizes)
+iklog.record (&goc.soma.ik(0.5))
+
+objref  inalog
+inalog = new Vector(vec_sizes)
+inalog.record (&goc.soma.ina(0.5))
+
+objref  icalog
+icalog = new Vector(vec_sizes)
+icalog.record (&goc.soma.ica(0.5))
+
+objref  ica2log
+ica2log = new Vector(vec_sizes)
+ica2log.record (&goc.soma.ica2(0.5))
+
+objref  Vlog
+Vlog = new Vector(vec_sizes)
+Vlog.record (&goc.soma.v(0.5))
+
+objref tlog
+tlog = new Vector(vec_sizes,0)
+tlog.record (&t)
+
+objref logfile
+logfile = new File()
+logfile.wopen ( "Golgi_protocol.dat" )
+
+simulate(logfile,tlog,Vlog,iklog,inalog,icalog,ica2log)
+logfile.close()
+
+
+quit()
+EOF
+)
+
+    ("reduced_protocol.hoc" ()  
+#<<EOF
+load_file("nrngui.hoc")
+load_file("Golgi_protocol.ses")
+
+// Load the Golgi cell template
+xopen("Golgi_reduced_template.hoc")
+objref goc
+goc = new GoC()
+
+
+prelength = 1000
+mainlength = 6000
+
+
+//**********************************************************************
+proc simulate() { local preDT, mainDT, logsize  localobj logfile, tlog, Vlog, iklog, inalog, icalog, ica2log
+    
+    mainDT = 0.025
+    preDT = 0.025
+    
+    dt = preDT
+    tstop = prelength
+    run()
+    
+    
+    if ( stoprun == 1) return
+    
+    dt = mainDT
+    continuerun(prelength + mainlength)
+    if ( stoprun == 1) return
+    
+    logfile=$o1
+    tlog=$o2
+    Vlog=$o3
+    iklog=$o4
+    inalog=$o5
+    icalog=$o6
+    ica2log=$o7
+    
+    logsize = tlog.size()
+    
+    for i=0,tlog.size()-1 {
+	logfile.printf("%g %g %g %g %g\n", tlog.x[i], Vlog.x[i], iklog.x[i], inalog.x[i], icalog.x[i], ica2log.x[i])
+    }
+
+}
+
+
+//*************User-Interface*******************************************
+
+nrnsecmenu(0.5, 1)
+
+xpanel("Spontaneous firing")
+xvalue("Time for Initialization", "prelength")
+xvalue("Main duration", "mainlength")
+
+xvalue("dt", "dt")
+xvalue("t", "t")
+xlabel("")
+xbutton("Start", "simulate()")
+xbutton("Stop", "stoprun = 1")
+xpanel()
+
+vec_sizes = (prelength+mainlength)/dt + 1	// recorded traces are all this size
+
+
+objref  iklog
+iklog = new Vector(vec_sizes)
+iklog.record (&goc.soma.ik(0.5))
+
+objref  inalog
+inalog = new Vector(vec_sizes)
+inalog.record (&goc.soma.ina(0.5))
+
+objref  icalog
+icalog = new Vector(vec_sizes)
+icalog.record (&goc.soma.ica(0.5))
+
+objref  ica2log
+ica2log = new Vector(vec_sizes)
+ica2log.record (&goc.soma.ica2(0.5))
+
+objref  Vlog
+Vlog = new Vector(vec_sizes)
+Vlog.record (&goc.soma.v(0.5))
+
+objref tlog
+tlog = new Vector(vec_sizes,0)
+tlog.record (&t)
+
+objref logfile
+logfile = new File()
+logfile.wopen ( "Golgi_reduced_protocol.dat" )
+
+simulate(logfile,tlog,Vlog,iklog,inalog,icalog,ica2log)
+logfile.close()
+
+
+quit()
+EOF
+)
+    ("protocol.ses" ()  
+#<<EOF
+{load_file("nrngui.hoc")}
+objectvar save_window_, rvp_
+objectvar scene_vector_[4]
+objectvar ocbox_, ocbox_list_, scene_, scene_list_
+{ocbox_list_ = new List()  scene_list_ = new List()}
+{pwman_place(0,0,0)}
+{
+save_window_ = new Graph(0)
+save_window_.size(0,5500,-80,50)
+scene_vector_[2] = save_window_
+{save_window_.view(0, -80, 5500, 130, 477, 9, 774.9, 232.3)}
+graphList[0].append(save_window_)
+save_window_.save_name("graphList[0].")
+save_window_.addexpr("v(.5)", 1, 1, 0.8, 0.9, 2)
+}
+{doNotify()}
+EOF
+)
+
+    (".hoc" ()  
+#<<EOF
+
+create soma
+access soma
+
+insert {{model_name}}
+
+soma {
+        nseg = 1 
+
+{% with diam = default(diam, 27), L = default(L, 27), celsius = default(celsius, 23) %}
+        diam = {{diam}}
+        L = {{L}} 
+        celsius = {{celsius}}
+{% endwith %}
+
+        cm = 1
+
+        Ra = 100
+    }
+
+
+EOF
+)
+
+    ("plot_neuron_original_iclamp.m" ()  
+#<<EOF
+
+CaHVA0       = load ("original/CaHVA.dat");
+CaHVA1       = load ("nemo_nmodl_generated/CaHVA.dat");
+
+CaLVA0       = load ("original/CaLVA.dat");
+CaLVA1       = load ("nemo_nmodl_generated/CaLVA.dat");
+
+HCN10       = load ("original/HCN1.dat");
+HCN11       = load ("nemo_nmodl_generated/HCN1.dat");
+
+HCN20       = load ("original/HCN2.dat");
+HCN21       = load ("nemo_nmodl_generated/HCN2.dat");
+
+KA0       = load ("original/KA.dat");
+KA1       = load ("nemo_nmodl_generated/KA.dat");
+
+KCa0       = load ("original/KCa.dat");
+KCa1       = load ("nemo_nmodl_generated/KCa.dat");
+
+KM0      = load ("original/KM.dat");
+KM1      = load ("nemo_nmodl_generated/KM.dat");
+
+KV0      = load ("original/KV.dat");
+KV1      = load ("nemo_nmodl_generated/KV.dat");
+
+SK20      = load ("original/SK2.dat");
+SK21      = load ("nemo_nmodl_generated/SK2.dat");
+
+Na0      = load ("original/Na.dat");
+Na1      = load ("nemo_nmodl_generated/Na.dat");
+
+NaR0      = load ("original/NaR.dat");
+NaR1      = load ("nemo_nmodl_generated/NaR.dat");
+
+NaP0      = load ("original/NaP.dat");
+NaP1      = load ("nemo_nmodl_generated/NaP.dat");
+
+
+subplot(3,4,1);
+plot(CaHVA0(:,1),CaHVA0(:,2),CaHVA1(:,1),CaHVA1(:,2),'linewidth',2);
+title ("CaHVA current");
+
+subplot(3,4,2);
+plot(CaLVA0(:,1),CaLVA0(:,2),CaLVA1(:,1),CaLVA1(:,2),'linewidth',2);
+title ("CaLVA current");
+
+subplot(3,4,3);
+plot(HCN10(:,1),HCN10(:,2),HCN11(:,1),HCN11(:,2),'linewidth',2);
+title ("HCN1 current");
+
+subplot(3,4,4);
+plot(HCN20(:,1),HCN20(:,2),HCN21(:,1),HCN21(:,2),'linewidth',2);
+title ("HCN2 current");
+
+subplot(3,4,5);
+plot(KA0(:,1),KA0(:,2),KA1(:,1),KA1(:,2),'linewidth',2);
+title ("KA current");
+
+subplot(3,4,6);
+plot(KCa0(:,1),KCa0(:,2),KCa1(:,1),KCa1(:,2),'linewidth',2);
+title ("KCa current");
+
+subplot(3,4,7);
+plot(KM0(:,1),KM0(:,2),KM1(:,1),KM1(:,2),'linewidth',2);
+title ("KM current");
+
+subplot(3,4,8);
+plot(KV0(:,1),KV0(:,2),KV1(:,1),KV1(:,2),'linewidth',2);
+title ("KV current");
+
+subplot(3,4,9);
+plot(SK20(:,1),SK20(:,2),SK21(:,1),SK21(:,2),'linewidth',2);
+title ("SK2 current");
+
+subplot(3,4,10);
+plot(Na0(:,1),Na0(:,2),Na1(:,1),Na1(:,2),'linewidth',2);
+title ("Na current");
+
+subplot(3,4,11);
+plot(NaR0(:,1),NaR0(:,2),NaR1(:,1),NaR1(:,2),'linewidth',2);
+title ("NaR current");
+
+subplot(3,4,12);
+plot(NaP0(:,1),NaP0(:,2),NaP1(:,1),NaP1(:,2),'linewidth',2);
+title ("NaP current");
+
+print  ("NEURON_Original_Iclamp.eps", "-depsc");
+EOF
+)
+
+
+
+    ("plot_neuron_original_vclamp.m" ()  
+#<<EOF
+
+CaHVA0       = load ("original/CaHVA.dat");
+CaHVA1       = load ("nemo_nmodl_generated/CaHVA.dat");
+
+CaLVA0       = load ("original/CaLVA.dat");
+CaLVA1       = load ("nemo_nmodl_generated/CaLVA.dat");
+
+HCN10       = load ("original/HCN1.dat");
+HCN11       = load ("nemo_nmodl_generated/HCN1.dat");
+
+HCN20       = load ("original/HCN2.dat");
+HCN21       = load ("nemo_nmodl_generated/HCN2.dat");
+
+KA0       = load ("original/KA.dat");
+KA1       = load ("nemo_nmodl_generated/KA.dat");
+
+KCa0       = load ("original/KCa.dat");
+KCa1       = load ("nemo_nmodl_generated/KCa.dat");
+
+KM0      = load ("original/KM.dat");
+KM1      = load ("nemo_nmodl_generated/KM.dat");
+
+KV0      = load ("original/KV.dat");
+KV1      = load ("nemo_nmodl_generated/KV.dat");
+
+SK20      = load ("original/SK2.dat");
+SK21      = load ("nemo_nmodl_generated/SK2.dat");
+
+Na0      = load ("original/Na.dat");
+Na1      = load ("nemo_nmodl_generated/Na.dat");
+
+NaR0      = load ("original/NaR.dat");
+NaR1      = load ("nemo_nmodl_generated/NaR.dat");
+
+NaP0      = load ("original/NaP.dat");
+NaP1      = load ("nemo_nmodl_generated/NaP.dat");
+
+
+subplot(3,4,1);
+plot(CaHVA0(:,1),CaHVA0(:,2),CaHVA1(:,1),CaHVA1(:,2),'linewidth',2);
+title ("CaHVA current");
+
+subplot(3,4,2);
+plot(CaLVA0(:,1),CaLVA0(:,2),CaLVA1(:,1),CaLVA1(:,2),'linewidth',2);
+title ("CaLVA current");
+
+subplot(3,4,3);
+plot(HCN10(:,1),HCN10(:,2),HCN11(:,1),HCN11(:,2),'linewidth',2);
+title ("HCN1 current");
+
+subplot(3,4,4);
+plot(HCN20(:,1),HCN20(:,2),HCN21(:,1),HCN21(:,2),'linewidth',2);
+title ("HCN2 current");
+
+subplot(3,4,5);
+plot(KA0(:,1),KA0(:,2),KA1(:,1),KA1(:,2),'linewidth',2);
+title ("KA current");
+
+subplot(3,4,6);
+plot(KCa0(:,1),KCa0(:,2),KCa1(:,1),KCa1(:,2),'linewidth',2);
+title ("KCa current");
+
+subplot(3,4,7);
+plot(KM0(:,1),KM0(:,2),KM1(:,1),KM1(:,2),'linewidth',2);
+title ("KM current");
+
+subplot(3,4,8);
+plot(KV0(:,1),KV0(:,2),KV1(:,1),KV1(:,2),'linewidth',2);
+title ("KV current");
+
+subplot(3,4,9);
+plot(SK20(:,1),SK20(:,2),SK21(:,1),SK21(:,2),'linewidth',2);
+title ("SK2 current");
+
+subplot(3,4,10);
+plot(Na0(:,1),Na0(:,2),Na1(:,1),Na1(:,2),'linewidth',2);
+title ("Na current");
+
+subplot(3,4,11);
+plot(NaR0(:,1),NaR0(:,2),NaR1(:,1),NaR1(:,2),'linewidth',2);
+title ("NaR current");
+
+subplot(3,4,12);
+plot(NaP0(:,1),NaP0(:,2),NaP1(:,1),NaP1(:,2),'linewidth',2);
+title ("NaP current");
+
+print  ("NEURON_Original_Vclamp.eps", "-depsc");
+
+EOF
+)
+
+    ("nestmodule_bootstrap.sh" ()  
+#<<EOF
+#!/bin/sh
+
+echo "Bootstrapping Golgi module..."
+
+if test -d autom4te.cache ; then
+# we must remove this cache, because it
+# may screw up things if configure is run for
+# different platforms. 
+  echo "  -> Removing old automake cache ..."
+  rm -rf autom4te.cache
+fi
+
+echo "  -> Running aclocal ..."
+aclocal
+
+echo "  -> Running libtoolize ..."
+if [ `uname -s` = Darwin ] ; then
+# libtoolize is glibtoolize on OSX
+  LIBTOOLIZE=glibtoolize
+else  
+  LIBTOOLIZE=libtoolize
+fi
+
+libtool_major=`$LIBTOOLIZE --version | head -n1 | cut -d\) -f2 | cut -d\. -f1`
+$LIBTOOLIZE --force --copy --ltdl
+
+echo "  -> Re-running aclocal ..."
+if test $libtool_major -le 2; then
+  aclocal --force
+else
+  aclocal --force -I $(pwd)/libltdl/m4
+fi
+
+echo "  -> Running autoconf ..."
+autoconf
+
+# autoheader must run before automake 
+echo "  -> Running autoheader ..."
+autoheader
+
+echo "  -> Running automake ..."
+automake --foreign --add-missing --force-missing --copy
+
+echo "Done."
+
+EOF
+)
+
+    ("nestmodule_configure.ac" ()  
+#<<EOF
+AC_PREREQ(2.52)
+
+AC_INIT(golgimodule, 1.0, raikov@oist.jp)
+
+# These variables are exported to include/config.h
+GOLGIMODULE_MAJOR=1
+GOLGIMODULE_MINOR=0
+GOLGIMODULE_PATCHLEVEL=0
+
+# Exporting source and build directories requires full path names.
+# Thus we have to expand.
+# Here, we are in top build dir, since source dir must exist, we can just
+# move there and call pwd
+if test "x$srcdir" = x ; then
+  PKGSRCDIR=`pwd`
+else
+  PKGSRCDIR=`cd $srcdir && pwd`
+fi
+PKGBUILDDIR=`pwd`
+
+# If this is not called, install-sh will be put into .. by bootstrap.sh
+# moritz, 06-26-06
+AC_CONFIG_AUX_DIR(.)
+
+AM_INIT_AUTOMAKE(nest, $GOLGIMODULE_VERSION)
+
+# obtain host system type; HEP 2004-12-20
+AC_CANONICAL_HOST
+
+# ------------------------------------------------------------------------
+# Handle options
+#
+# NOTE: No programs/compilations must be run in this section;
+#       otherwise CFLAGS and CXXFLAGS may take on funny default
+#       values.
+#       HEP 2004-12-20
+# ------------------------------------------------------------------------
+
+# nest-config
+NEST_CONFIG=`which nest-config`
+AC_ARG_WITH(nest,[  --with-nest=script	nest-config script including path],
+[
+  if test "$withval" != yes; then
+    NEST_CONFIG=$withval
+  else
+    AC_MSG_ERROR([--with-nest-config expects the nest-config script as argument. See README for details.])
+  fi
+])
+
+# -------------------------------------------
+# END Handle options
+# -------------------------------------------
+
+# sundials-config
+SUNDIALS_CONFIG=`which sundials-config`
+AC_ARG_WITH(sundials,[  --with-sundials=script	sundials-config script including path],
+[
+  if test "$withval" != yes; then
+    SUNDIALS_CONFIG=$withval
+#  else
+#    AC_MSG_ERROR([--with-sundials-config expects the sundials-config script as argument. See README for details.])
+  fi
+])
+
+
+# does nest-config work
+AC_MSG_CHECKING([for nest-config ])
+AC_CHECK_FILE($NEST_CONFIG, HAVE_NEST=yes, 
+              AC_MSG_ERROR([No usable nest-config was found. You may want to use --with-nest-config.]))
+AC_MSG_RESULT(found)
+
+AC_MSG_CHECKING([for sundials-config ])
+AC_CHECK_FILE($SUNDIALS_CONFIG, HAVE_SUNDIALS=yes, 
+              AC_MSG_WARN([No usable sundials-config was found. You may want to use --with-sundials-config.]))
+AC_MSG_RESULT(found)
+
+# the following will crash if nest-config does not run
+# careful, lines below must not break
+AC_MSG_CHECKING([for NEST directory information ])
+NEST_PREFIX=`$NEST_CONFIG --prefix`
+NEST_CPPFLAGS=`$NEST_CONFIG --cflags`
+NEST_COMPILER=`$NEST_CONFIG --compiler`
+if test $prefix = NONE; then prefix=`$NEST_CONFIG --prefix`; fi
+AC_MSG_RESULT($NEST_CPPFLAGS)
+
+
+AC_MSG_CHECKING([for SUNDIALS preprocessor flags ])
+SUNDIALS_CPPFLAGS="`$SUNDIALS_CONFIG -m cvode -t s -l c -s cppflags`"
+AC_MSG_RESULT($SUNDIALS_CPPFLAGS)
+
+AC_MSG_CHECKING([for SUNDIALS linker options ])
+SUNDIALS_LDFLAGS="`$SUNDIALS_CONFIG -m cvode -t s -l c -s libs` -lblas -llapack"
+AC_MSG_RESULT($SUNDIALS_LDFLAGS)
+
+# Set the platform-dependent compiler flags based on the canonical
+# host string.  These flags are placed in AM_{C,CXX}FLAGS.  If
+# {C,CXX}FLAGS are given as environment variables, then they are
+# appended to the set of automatically chosen flags.  After
+# {C,CXX}FLAGS have been read out, they must be cleared, since
+# system-dependent defaults will otherwise be placed into the
+# Makefiles.  HEP 2004-12-20.
+
+# Before we can determine the proper compiler flags, we must know
+# which compiler we are using.  Since the pertaining AC macros run the
+# compiler and set CFLAGS, CXXFLAGS to system-dependent values, we
+# need to save command line/enviroment settings of these variables
+# first. AC_AIX must run before the compiler is run, so we must run it
+# here.
+# HEP 2004-12-21
+
+GOLGIMODULE_SAVE_CXXFLAGS=$CXXFLAGS
+
+# Must first check if we are on AIX
+AC_AIX
+
+# Check for C++ compiler, looking for the same compiler
+# used with NEST
+AC_PROG_CXX([ $NEST_COMPILER ])
+
+# the following is makeshift, should have the macro set proper
+# GOLGIMODULE_SET_CXXFLAGS
+AM_CXXFLAGS=$GOLGIMODULE_SAVE_CXXFLAGS
+CXXFLAGS=
+
+## Configure C environment
+
+AC_PROG_LD
+AC_PROG_INSTALL
+
+AC_LIBLTDL_CONVENIENCE	   ## put libltdl into a convenience library
+AC_PROG_LIBTOOL		   ## use libtool
+AC_CONFIG_SUBDIRS(libltdl) ## also configure subdir containing libltdl
+
+#-- Set the language to C++
+AC_LANG_CPLUSPLUS
+
+#-- Look for programs needed in the Makefile
+AC_PROG_CXXCPP
+AM_PROG_LIBTOOL
+AC_PATH_PROGS([MAKE],[gmake make],[make])
+
+# ---------------------------------------------------------------
+# Configure directories to be built
+# ---------------------------------------------------------------
+
+PKGDATADIR=$datadir/$PACKAGE
+PKGDOCDIR=$datadir/doc/$PACKAGE
+
+# set up directories from which to build help
+# second line replaces space with colon as separator
+HELPDIRS="$PKGSRCDIR $PKGSRCDIR/sli"
+HELPDIRS=`echo $HELPDIRS | tr " " ":"`
+
+#-- Replace these variables in *.in
+AC_SUBST(HAVE_NEST)
+AC_SUBST(NEST_CONFIG)
+AC_SUBST(NEST_CPPFLAGS)
+AC_SUBST(NEST_COMPILER)
+AC_SUBST(NEST_PREFIX)
+AC_SUBST(HELPDIRS)
+AC_SUBST(PKGSRCDIR)
+AC_SUBST(PKGBUILDDIR)
+AC_SUBST(PKGDATADIR)
+AC_SUBST(PKGDOCDIR)
+AC_SUBST(KERNEL)
+AC_SUBST(HOST)
+AC_SUBST(SED)
+AC_SUBST(LD)
+AC_SUBST(host_os)
+AC_SUBST(host_cpu)
+AC_SUBST(host_vendor)
+AC_SUBST(AS)
+AC_SUBST(CXX)
+AC_SUBST(AR)
+AC_SUBST(ARFLAGS)
+AC_SUBST(CXX_AR)
+AC_SUBST(AM_CXXFLAGS)
+AC_SUBST(AM_CFLAGS)
+AC_SUBST(MAKE)
+AC_SUBST(MAKE_FLAGS)
+AC_SUBST(INCLTDL)
+AC_SUBST(LIBLTDL)
+AC_SUBST(SUNDIALS_CONFIG)
+AC_SUBST(SUNDIALS_CPPFLAGS)
+AC_SUBST(SUNDIALS_LDFLAGS)
+
+AM_CONFIG_HEADER(golgimodule_config.h:golgimodule_config.h.in)
+AC_CONFIG_FILES(Makefile)
+
+# -----------------------------------------------
+# Create output
+# -----------------------------------------------
+AC_OUTPUT
+
+
+# -----------------------------------------------
+# Report, after output at end of configure run
+# Must come after AC_OUTPUT, so that it is 
+# displayed after libltdl has been configured
+# -----------------------------------------------
+
+echo
+echo "-------------------------------------------------------"
+echo "Golgi module Configuration Summary"
+echo "-------------------------------------------------------"
+echo
+echo "C++ compiler        : $CXX"
+echo "C++ compiler flags  : $AM_CXXFLAGS"
+echo "NEST compiler flags : $NEST_CPPFLAGS"
+echo "SUNDIALS compiler flags : $SUNDIALS_CPPFLAGS"
+echo "SUNDIALS linker flags : $SUNDIALS_LDFLAGS"
+
+# these variables will still contain '${prefix}'
+# we want to have the versions where this is resolved, too:
+eval eval eval  PKGDOCDIR_AS_CONFIGURED=$PKGDOCDIR
+eval eval eval  PKGDATADIR_AS_CONFIGURED=$PKGDATADIR
+
+echo
+echo "-------------------------------------------------------"
+echo
+echo "You can build and install Golgi module now, using"
+echo "  make"
+echo "  make install"
+echo
+echo "Golgi module will be installed to:"
+echo -n "  "; eval eval echo "$libdir"
+echo
+
+EOF
+)
+
+    ("nestmodule_makefile.am" ()  
+#<<EOF
+
+# Automake file for external dynamic modules for NEST
+#
+# Hans Ekkehard Plesser, April 2008
+# Automake file for the Developer Module
+# 
+# libgolgimodule is built as a normal, installable library.
+# It will be installed to $prefix/lib by make install.
+# 
+# Headers from this directory are not to be installed upon
+# make install. They are therefore included in _SOURCES.
+
+
+libdir= @libdir@/nest
+
+lib_LTLIBRARIES=      golgimodule.la libgolgimodule.la
+
+golgimodule_la_CXXFLAGS= @AM_CXXFLAGS@
+golgimodule_la_SOURCES=  golgimodule.cpp      golgimodule.h      \
+                      Golgi.cpp Golgi.h 
+golgimodule_la_LDFLAGS=  -module
+
+libgolgimodule_la_CXXFLAGS= $(golgimodule_la_CXXFLAGS) -DLINKED_MODULE
+libgolgimodule_la_SOURCES=  $(golgimodule_la_SOURCES)
+
+MAKEFLAGS= @MAKE_FLAGS@
+
+AM_CPPFLAGS= @NEST_CPPFLAGS@ \
+	     @SUNDIALS_CPPFLAGS@ \
+             @INCLTDL@      
+
+AM_LDFLAGS = @SUNDIALS_LDFLAGS@
+
+.PHONY: install-slidoc
+
+nobase_pkgdata_DATA=\
+	golgimodule.sli
+
+install-slidoc:
+	NESTRCFILENAME=/dev/null $(DESTDIR)$(NEST_PREFIX)/bin/sli --userargs="@HELPDIRS@" $(NEST_PREFIX)/share/nest/sli/install-help.sli
+
+install-data-hook: install-exec install-slidoc
+
+EXTRA_DIST= sli
+
+EOF
+)
+
+    ("nestmodule.cpp" ()  
+#<<EOF
+/*
+ *  golgimodule.cpp
+ *  This file is part of NEST.
+ *
+ *  Copyright (C) 2008 by
+ *  The NEST Initiative
+ *
+ *  See the file AUTHORS for details.
+ *
+ *  Permission is granted to compile and modify
+ *  this file for non-commercial use.
+ *  See the file LICENSE for details.
+ *
+ */
+
+// include necessary NEST headers
+//#include "config.h"
+#include "network.h"
+#include "model.h"
+#include "dynamicloader.h"
+#include "genericmodel.h"
+#include "generic_connector.h"
+#include "booldatum.h"
+#include "integerdatum.h"
+#include "tokenarray.h"
+#include "exceptions.h"
+#include "sliexceptions.h"
+#include "nestmodule.h"
+
+// include headers with your own stuff
+#include "golgimodule.h"
+#include "Golgi.h"
+
+// -- Interface to dynamic module loader ---------------------------------------
+
+/*
+ * The dynamic module loader must be able to find your module. 
+ * You make the module known to the loader by defining an instance of your 
+ * module class in global scope. This instance must have the name
+ *
+ * <modulename>_LTX_mod
+ *
+ * The dynamicloader can then load modulename and search for symbol "mod" in it.
+ */
+ 
+golginest::GolgiModule golgimodule_LTX_mod;
+
+// -- DynModule functions ------------------------------------------------------
+
+golginest::GolgiModule::GolgiModule()
+  { 
+#ifdef LINKED_MODULE
+     // register this module at the dynamic loader
+     // this is needed to allow for linking in this module at compile time
+     // all registered modules will be initialized by the main app's dynamic loader
+     nest::DynamicLoaderModule::registerLinkedModule(this);
+#endif     
+   }
+
+golginest::GolgiModule::~GolgiModule()
+   {
+   }
+
+   const std::string golginest::GolgiModule::name(void) const
+   {
+     return std::string("Golgi Module"); // Return name of the module
+   }
+
+   const std::string golginest::GolgiModule::commandstring(void) const
+   {
+     return std::string("");
+   }
+
+   /* BeginDocumentation
+      Name: StepPatternConnect - Connect sources and targets with a stepping pattern
+      
+      Synopsis:
+      [sources] source_step [targets] target_step synmod StepPatternConnect -> n_connections
+      
+      Parameters:
+      [sources]     - Array containing GIDs of potential source neurons
+      source_step   - Make connection from every source_step'th neuron
+      [targets]     - Array containing GIDs of potential target neurons
+      target_step   - Make connection to every target_step'th neuron
+      synmod        - The synapse model to use (literal, must be key in synapsedict)
+      n_connections - Number of connections made
+      
+      Description:
+      This function subsamples the source and target arrays given with steps
+      source_step and target_step, beginning with the first element in each array,
+      and connects the selected nodes.
+      
+      Example:
+      /first_src 0 /network_size get def
+      /last_src /iaf_neuron 20 Create def  % nodes  1 .. 20
+      /src [first_src last_src] Range def
+      /last_tgt /iaf_neuron 10 Create def  % nodes 21 .. 30
+      /tgt [last_src 1 add last_tgt] Range def
+      
+      src 6 tgt 4 /drop_odd_spike StepPatternConnect 
+  
+      This connects nodes [1, 7, 13, 19] as sources to nodes [21, 25,
+      29] as targets using synapses of type drop_odd_spike, and
+      returning 12 as the number of connections.  The following
+      command will print the connections (you must paste the SLI
+      command as one long line):
+
+      src { /s Set << /source s /synapse_type /static_synapse >> FindConnections { GetStatus /target get } Map dup length 0 gt { cout s <- ( -> ) <- exch <-- endl } if ; } forall
+      1 -> [21 25 29]
+      7 -> [21 25 29]
+      13 -> [21 25 29]
+      19 -> [21 25 29]
+      
+      Remark:
+      This function is only provided as an example for how to write your own 
+      interface function. 
+      
+      Author:
+      Hans Ekkehard Plesser
+      
+      SeeAlso:
+      Connect, ConvergentConnect, DivergentConnect
+   */
+   void golginest::GolgiModule::StepPatternConnect_Vi_i_Vi_i_lFunction::execute(SLIInterpreter *i) const
+   {
+     // Check if we have (at least) five arguments on the stack.
+     i->assert_stack_load(5);
+
+     // Retrieve source, source step, target, target step from the stack
+     const TokenArray sources = getValue<TokenArray> (i->OStack.pick(4)); // bottom
+     const long src_step      = getValue<long>       (i->OStack.pick(3));
+     const TokenArray targets = getValue<TokenArray> (i->OStack.pick(2));
+     const long tgt_step      = getValue<long>       (i->OStack.pick(1));  
+     const Name synmodel_name = getValue<std::string>(i->OStack.pick(0)); // top
+     
+     // Obtain synapse model index
+     const Token synmodel 
+       = nest::NestModule::get_network().get_synapsedict().lookup(synmodel_name);
+     if ( synmodel.empty() )
+       throw nest::UnknownSynapseType(synmodel_name.toString());
+     const nest::index synmodel_id = static_cast<nest::index>(synmodel);
+
+     // Build a list of targets with the given step
+     TokenArray selected_targets;
+     for ( size_t t = 0 ; t < targets.size() ; t += tgt_step )
+       selected_targets.push_back(targets[t]);
+     
+     // Now connect all appropriate sources to this list of targets
+     size_t Nconn = 0;  // counts connections
+     for ( size_t s = 0 ; s < sources.size() ; s += src_step )
+     {
+       // We must first obtain the GID of the source as integer
+       const nest::long_t sgid = getValue<nest::long_t>(sources[s]);
+
+       // nest::network::divergent_connect() requires weight and delay arrays. We want to use
+       // default values from the synapse model, so we pass empty arrays.
+       nest::NestModule::get_network().divergent_connect(sgid, selected_targets, 
+							 TokenArray(), TokenArray(),
+							 synmodel_id);
+       Nconn += selected_targets.size();
+     }
+
+     // We get here only if none of the operations above throws and exception.
+     // Now we can safely remove the arguments from the stack and push Nconn
+     // as our result. 
+     i->OStack.pop(5);
+     i->OStack.push(Nconn);
+     
+     // Finally, we pop the call to this functions from the execution stack.
+     i->EStack.pop();
+   }
+
+  //-------------------------------------------------------------------------------------
+
+  void golginest::GolgiModule::init(SLIInterpreter *i, nest::Network*)
+  {
+    /* Register a neuron or device model.
+       Give node type as template argument and the name as second argument.
+       The first argument is always a reference to the network.
+       Return value is a handle for later unregistration.
+    */
+       nest::register_model<nest::Golgi>(nest::NestModule::get_network(), 
+					    "Golgi");
+
+
+    /* Register a SLI function.
+       The first argument is the function name for SLI, the second a pointer to
+       the function object. If you do not want to overload the function in SLI,
+       you do not need to give the mangled name. If you give a mangled name, you
+       should define a type trie in the golgimodule-init.sli file.
+    */
+    i->createcommand("StepPatternConnect_Vi_i_Vi_i_l", 
+                     &stepPatternConnect_Vi_i_Vi_i_lFunction);
+
+  }  // GolgiModule::init()
+
+ 
+
+EOF
+)
+
+    ("nestmodule.h" ()  
+#<<EOF
+/*
+ *  golgimodule.h
+ *
+ *  This file is part of NEST.
+ *
+ *  Copyright (C) 2008 by
+ *  The NEST Initiative
+ *
+ *  See the file AUTHORS for details.
+ *
+ *  Permission is granted to compile and modify
+ *  this file for non-commercial use.
+ *  See the file LICENSE for details.
+ *
+ */
+
+#ifndef GOLGIMODULE_H
+#define GolgiMODULE_H
+
+#include "dynmodule.h"
+#include "slifunction.h"
+
+namespace nest
+{
+  class Network;
+}
+
+// Put your stuff into your own namespace.
+namespace golginest {
+  
+/**
+ * Class defining your model.
+ * @note For each model, you must define one such class, with a unique name.
+ */
+class GolgiModule : public DynModule
+{
+public:
+
+  // Interface functions ------------------------------------------
+  
+  /**
+   * @note The constructor registers the module with the dynamic loader. 
+   *       Initialization proper is performed by the init() method.
+   */
+  GolgiModule();
+  
+  /**
+   * @note The destructor does not do much in modules. Proper "downrigging"
+   *       is the responsibility of the unregister() method.
+   */
+  ~GolgiModule();
+
+  /**
+   * Initialize module by registering models with the network.
+   * @param SLIInterpreter* SLI interpreter
+   * @param nest::Network*  Network with which to register models
+   * @note  Parameter Network is needed for historical compatibility
+   *        only.
+   */
+  void init(SLIInterpreter*, nest::Network*);
+
+  /**
+   * Return the name of your model.
+   */
+  const std::string name(void) const;
+  
+  /**
+   * Return the name of a sli file to execute when golgimodule is loaded.
+   * This mechanism can be used to define SLI commands associated with your
+   * module, in particular, set up type tries for functions you have defined.
+   */
+  const std::string commandstring(void) const;
+     
+public:
+  
+  // Classes implementing your functions -----------------------------
+  
+  /**
+   * Implement a function for a step-pattern-based connection.
+   * @note What this function does is described in the SLI documentation
+   *       in the cpp file.
+   * @note The mangled name indicates this function expects the following
+   *       arguments on the stack (bottom first): vector of int, int, 
+   *       vector of int, int. 
+   * @note You must define a member object in your module class
+   *       of the function class. execute() is later invoked on this
+   *       member.
+   */
+  class StepPatternConnect_Vi_i_Vi_i_lFunction: public SLIFunction
+     {
+     public:
+       void execute(SLIInterpreter *) const;
+     };
+
+     StepPatternConnect_Vi_i_Vi_i_lFunction stepPatternConnect_Vi_i_Vi_i_lFunction;
+  };
+} // namespace golginest
+
+#endif
+
+EOF
+)
+
+
+    ("golgimodule.sli" ()  
+#<<EOF
+/* 
+ * Initialization file for GolgiModule.
+ * Run automatically when GolgiModule is loaded.
+ */
+
+M_DEBUG (golgimodule.sli) (Initializing SLI support for GolgiModule.) message
+
+/StepPatternConnect [ /arraytype /integertype /arraytype /integertype /literaltype ]
+{ 
+  StepPatternConnect_Vi_i_Vi_i_l
+} def
+
+EOF
+)
+
+
+    ("testrun.sli" ()  
+#<<EOF
+/dt 0.025 def
+
+ResetKernel
+0
+ << 
+   /resolution  dt 
+ >> SetStatus
+
+(golgimodule) Install
+/neuron /Golgi Create def
+/neuron_params << /V_m -65.0 >> def
+neuron neuron_params SetStatus
+
+/stepinput /step_current_generator Create def
+/vlog /voltmeter Create def
+/vlog_parameters << /interval dt /to_file true /to_memory false >> def
+vlog vlog_parameters SetStatus
+
+stepinput neuron Connect
+vlog neuron Connect
+
+/step_current_parameters << /amplitude_times [0.0 1000.0 2000.0 3000.0 4000.0 5000.0] /amplitude_values [0.0 1.0 2.0 3.0 4.0 0.0]  >> def
+stepinput step_current_parameters SetStatus
+
+6000.0 Simulate
+
+EOF
+)
+
+))

@@ -1,0 +1,137 @@
+<?xml version="1.0" ?>
+
+<model xmlns="ncml" xmlns:ncml="ncml" name="Terman02">
+
+  <input id="v">
+    <as>v</as>
+  </input>
+
+  <const id="Vrest">
+    <expr>-65.0</expr>
+  </const>
+
+  <const id="V_t">
+    <expr>-35.0</expr>
+  </const>
+
+  <component type="membrane-capacitance">
+    <const id="C">
+      <expr>1.0</expr>
+    </const>
+    <output id="C"></output>
+  </component>
+
+
+  <functor name="Nonspecific_Current" type="ionic-current" 
+	   parameters="erev,gbar">
+
+      <component name="non-specific" type="permeating-ion">
+	<const id="reversal_potential">
+	  <expr>erev</expr>
+	</const>
+	<output id="reversal_potential"></output>
+      </component>
+
+      <component type="pore">
+	<const id="maximal_conductance">
+	  <expr>gbar</expr>
+	</const>
+	<output id="maximal_conductance"></output>
+      </component>
+
+  </functor>
+
+
+  <functor name="Ohmic_Current" type="ionic-current" 
+	   parameters="species,m_initial,h_initial,m_power,h_power,phi_m,tau_m,m_inf,phi_h,tau_h,h_inf,erev,gbar">
+
+      <component type="gate">
+
+	<rate id="m">
+	  <expr>phi_m * ((m_inf (v) - v) / tau_m (v))</expr>
+	  <initial>m_initial</initial>
+	  <power>m_power</power>
+	</rate>
+
+	<rate id="h">
+	  <expr>phi_h * ((h_inf (v) - v) / tau_h (v))</expr>
+	  <initial>h_initial</initial>
+	  <power>h_power</power>
+	</rate>
+
+	<output id="m"/>
+	<output id="h"/>
+      </component>
+
+      <component name="species" type="permeating-ion">
+	<const id="reversal_potential">
+	  <expr>erev</expr>
+	</const>
+	<output id="reversal_potential"></output>
+      </component>
+
+      <component type="pore">
+	<const id="maximal_conductance">
+	  <expr>gbar</expr>
+	</const>
+	<output id="maximal_conductance"></output>
+      </component>
+    </functor>
+
+    <component name="Leak" functor-name="Nonspecific_Current">
+
+      <const id="erev"><expr>-60.0</expr><!-- mV --></const>
+      <const id="gbar"><expr>2.25</expr> <!--  nS/um^2 --></const>
+      
+    </component>
+
+
+    <component name="K" functor-name="Ohmic_Current">
+
+      <label id="species">k</label>
+
+      <const id="gbar"><expr>45.0</expr><!-- nS/um^2 --></const>
+      <const id="erev"><expr>-80.0</expr><!-- mV --></const>
+
+      <const id="m_initial"><expr>0.0</expr></const>
+      <const id="h_initial"><expr>0.0</expr></const>
+
+      <const id="m_power"><expr>4.0</expr></const>
+      <const id="h_power"><expr>0.0</expr></const>
+
+      <const id="tau0_n"><expr>1.0</expr><!-- ms --></const>
+      <const id="tau1_n"><expr>100.0</expr><!-- ms --></const>
+      <const id="theta_tau_n"><expr>-80.0</expr><!-- ms --></const>
+      <const id="sigma_tau_n"><expr>-26.0</expr><!-- unitless --></const>
+
+      <const id="theta_n"><expr>-32.0</expr><!-- ms --></const>
+      <const id="sigma_n"><expr>8.0</expr><!-- unitless --></const>
+
+      <const id="phi_m"><expr>0.75</expr><!-- unitless --></const>
+
+      <defun id="tau_m">
+	<arg>v</arg>
+	<body>tau0_n + (tau1_n / (1 + exp (neg ((v - theta_tau_n) / sigma_tau_n))))</body>
+      </defun>
+
+      <defun id="m_inf">
+	<arg>v</arg>
+	<body>1 / (1 + exp ((v - theta_n) / sigma_n))</body>
+      </defun>
+
+      <const id="phi_h"><expr>0.0</expr><!-- unitless --></const>
+
+      <defun id="tau_h">
+	<arg>v</arg>
+	<body>0.0</body>
+      </defun>
+
+      <defun id="h_inf">
+	<arg>v</arg>
+	<body>0.0</body>
+      </defun>
+      
+    </component>
+
+    
+</model>

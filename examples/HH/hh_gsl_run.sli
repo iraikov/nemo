@@ -1,0 +1,16 @@
+## HH model driver for NEST
+(mymodule) Install
+/neuron /hodgkin_huxley Create def
+/noise /poisson_generator Create def
+/input /step_current_generator Create def
+/vlog /voltmeter Create def
+input neuron Connect
+vlog neuron Connect
+/noise_parameters << /rate 200.0 >> def
+noise noise_parameters SetStatus 
+/step_current_parameters << /amplitude_times [ 1.0 ] /amplitude_values [ 10.0 ]  >> def
+input step_current_parameters SetStatus
+/vlog_parameters << /to_file true /to_memory false >> def
+vlog vlog_parameters SetStatus
+100.0 Simulate
+

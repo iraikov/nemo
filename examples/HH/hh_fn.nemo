@@ -1,0 +1,128 @@
+;;
+;; This model is used to calculate the channel conductance assuming
+;; some initial state. The calculation is based on sodium ion flow,
+;; potassium ion flow and leakage ion flow. (Hodgkin, A. L. and Huxley,
+;; A. F. (1952) "A Quantitative Description of Membrane Current and its
+;; Application to Conduction and Excitation in Nerve" Journal of
+;; Physiology 117: 500-544)
+;;
+
+nemo-model
+ 
+ hodgkin_huxley
+    
+      input v
+ 
+      component (type defaults)
+        const Vrest = -65
+        const V_t = -35
+        output Vrest V_t
+ 
+      component (type membrane-capacitance)
+		 const C = 1.0
+		 output C
+
+
+      functor (type ionic-current) (name Nadef)
+
+         A_alpha_m B_alpha_m C_alpha_m A_beta_m B_beta_m C_beta_m A_alpha_h B_alpha_h C_alpha_h A_beta_h B_beta_h C_beta_h g e
+
+         component (type gate)
+	    ;; rate functions
+	    fun amf (v)   (A_alpha_m  *  ((v - B_alpha_m) / (1.0 - (exp ((neg (v - B_alpha_m)) / C_alpha_m)))))
+	    fun bmf (v)   (A_beta_m  *  (exp ((neg (v - B_beta_m)) / C_beta_m)))
+	    fun ahf (v)   (A_alpha_h *  (exp ((neg (v - B_alpha_h)) / C_alpha_h)))
+	    fun bhf (v)   (A_beta_h  /  (1.0 + (exp ((neg (v - B_beta_h)) / C_beta_h))))
+	    hh-ionic-gate 
+	     Na  ;; ion name: exported variables will be of the form {ion}_{id}
+	      initial-m (amf (Vrest) / (amf (Vrest) + bmf (Vrest))) 
+	      initial-h (ahf (Vrest) / (ahf (Vrest) + bhf (Vrest))) 
+	      m-power   3
+	      h-power   1
+	      m-alpha   (amf (v))
+	      h-alpha   (ahf (v))
+	      m-beta    (bmf (v))
+	      h-beta    (bhf (v))
+
+         component (type permeating-ion) (name na)
+		    const erev = e
+		    output erev
+
+         component (type pore)
+		    const  gbar  = g
+		    output gbar
+
+      functor (type ionic-current) (name Kdef)
+
+         A_alpha_n B_alpha_n C_alpha_n A_beta_n B_beta_n C_beta_n e g
+
+         component (type gate)
+		    
+	    ;; rate functions
+	    fun anf (v)   (A_alpha_n  * ((v - B_alpha_n) / (1 - (exp ((neg (v - B_alpha_n)) / C_alpha_n)))))
+	    fun bnf (v)   (A_beta_n * (exp ((neg (v - B_beta_n)) / C_beta_n)))
+	    
+	    hh-ionic-gate 
+	     K  ;; ion name
+	      initial-m (anf (Vrest) / (anf (Vrest) + bnf (Vrest)))
+	      m-power 4
+	      h-power 0 ;; h-power is 0, therefore h further declarations are omitted
+	      m-alpha (anf (v))
+	      m-beta  (bnf (v))
+
+
+         component (type pore)
+	    const   gbar   = g
+	    output  gbar
+
+         component (type permeating-ion) (name k)
+		    const erev = e
+		    output erev
+
+
+      functor (type ionic-current) (name Leakdef)
+
+               e g
+		  
+               component (type pore)
+			  const  gbar  = g
+			  output gbar
+		  
+               component (type permeating-ion) (name non-specific)
+			 const erev = e
+			 output erev
+      
+      
+      component (name Na) = Nadef (
+                      (const A_alpha_m = 0.1)
+                      (const B_alpha_m = -40.0)
+                      (const C_alpha_m = 10.0)
+                      (const A_beta_m  = 4.0)
+                      (const B_beta_m  = -65.0)
+                      (const C_beta_m  = 18.0)
+                      (const A_alpha_h = 0.07)
+                      (const B_alpha_h = -65.0)
+                      (const C_alpha_h = 20.0)
+                      (const A_beta_h  = 1.0)
+                      (const B_beta_h  = -35.0)
+                      (const C_beta_h  = 10.0)
+                      (const e = 50.0)
+                      (const g = 0.12)
+                     )
+
+      component (name K) = Kdef (
+                      (const A_alpha_n = 0.01)
+                      (const B_alpha_n = -55.0)
+                      (const C_alpha_n = 10.0)
+                      (const A_beta_n  = 0.125)
+                      (const B_beta_n  = -65.0)
+                      (const C_beta_n  = 80.0)
+                      (const e = -77.0)
+                      (const g = 0.036)
+                     )
+     
+      component (name Leak) = Leakdef (
+                      (const g  = 0.0003)
+                      (const e = -54.4)
+                     )
+     

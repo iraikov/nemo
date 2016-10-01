@@ -1,0 +1,69 @@
+
+(nemo-model MorrisLecar81
+
+      ((input v)
+
+       (component (type membrane-capacitance)
+	   (const c = 20.0)
+	   (output c))
+
+       (component (type gate-complex)
+
+	 (component (type gate)
+
+		    (const phi = 0.0667)
+		    (const v3 = 10.0) 
+                    (const v4 = 14.5)
+
+		    (defun winf (v)  (0.5 * (1 + (tanh ((v - v3) / v4)))))
+		    (defun lamw (v)  (phi * (cosh ((v - v3) / (2 * v4)))))
+		    (d (w)  = (lamw(v) * ((winf(v) - w))))
+
+		    (output w) )
+
+	 (component (type pore)
+		    (const gk  = 8.0)
+		    (output gk ) )
+
+	 (component (type permeating-ion) (name k)
+		    (const vk = -70)
+		    (output vk ) )
+	 )
+
+
+       (component (type gate-complex)
+
+	 (component (type gate)
+
+		    (const v1 = -1)
+		    (const v2 = 15.0)
+
+		    (defun minf (v)  (0.5 * (1 + (tanh ((v - v1) / v2)))))
+		    (u = (minf (v)))
+
+		    (output u) )
+	 
+	 (component (type pore)
+		    (const gca  = 4.0)
+		    (output gca ) )
+
+	 (component (type permeating-ion) (name ca)
+		    (const vca = 100)
+		    (output vca ) )
+	 )
+
+
+
+
+       (component (type gate-complex) (name leak)
+	      
+	      (component (type pore)
+			 (const  gl  = 20)
+			 (output gl ))
+	      
+	      (component (type permeating-ion) (name non-specific)
+			 (const el = -50)
+			 (output el ))
+	      
+	      ) 
+))
