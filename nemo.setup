@@ -74,7 +74,7 @@
 	(run (csi -s expr.grm)))
 
        ((dynld-name "nemo-core") ("nemo-core.scm" "expr.grm.scm")
-	(compile -O -d2 -S -s nemo-core.scm -j nemo-core))
+	(compile -O -d2 -S -s -I ,(repository-path) nemo-core.scm -j nemo-core))
 
        ((dynld-name "nemo-core.import") ("nemo-core.import.scm")
 	(compile -O2 -s nemo-core.import.scm))
